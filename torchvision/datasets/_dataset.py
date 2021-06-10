@@ -3,8 +3,11 @@ import io
 import pathlib
 from typing import Any, Callable, Dict, Optional
 
+import matplotlib.pyplot as plt
+
 from torch.utils.data import IterDataPipe
 
+from . import decoder as decoder_
 from ._builder import DatasetBuilder
 from ._home import home
 from .decoder import _decode_sample
@@ -56,3 +59,9 @@ class Dataset:
         if decoder:
             datapipe = datapipe.map(functools.partial(_decode_sample, decoder=decoder))
         return datapipe
+
+    def show_example(self):
+        sample = next(iter(self.as_datapipe(decoder=decoder_.pil)))
+        plt.imshow(sample["image"])
+        plt.title(f"{sample['cls']} ({sample['label']})")
+        plt.show()
