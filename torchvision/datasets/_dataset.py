@@ -1,62 +1,58 @@
+import functools
 import io
 import pathlib
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Optional
 
 from torch.utils.data import IterDataPipe
 
-from .utils import Resource
+from ._builder import DatasetBuilder
+from ._home import home
+from .decoder import _decode_sample
 
 __all__ = ["Dataset"]
 
 
-class Dataset(IterDataPipe):
-    def __init__(self, data_dir: pathlib.Path, *, split: str, **kwargs) -> None:
-        if kwargs:
-            raise ValueError()
+class Dataset:
+    def __init__(
+        self, builder: DatasetBuilder, *, data_dir: Optional[pathlib.Path] = None, **config_options: Any
+    ) -> None:
+        self._builder = builder
+        self.config = builder._make_config(**config_options)
 
+        if data_dir is None:
+            data_dir = home()
+        elif isinstance(data_dir, str):
+            data_dir = pathlib.Path(data_dir)
+        data_dir /= self.name.lower()
         self.data_dir = data_dir
-        self.split = split
-
-    def resources(self) -> List[Resource]:
-        raise NotImplementedError
 
     @property
-    def dp(self) -> Iterable[Dict[str, Any]]:
-        raise NotImplementedError
+    def name(self) -> str:
+        return self._builder.NAME
+
+    @property
+    def meta(self):
+        return self._builder.META
+
+    def label_to_class(self, label: int) -> str:
+        return self._builder.label_to_class(label)
 
     def check_integrity(self, *, strict: bool = True) -> bool:
-        return all(resource.check_integrity(self.data_dir, strict=strict) for resource in self.resources())
+        # TODO: async
+        return all(
+            resource.check_integrity(self.data_dir, strict=strict)
+            for resource in self._builder.resources(self.config).values()
+        )
 
-    def download(self):
-        for resource in self.resources():
-            resource.download(self.data_dir)
+    def download(self, *, strict: bool = True):
+        # TODO: async
+        for resource in self._builder.resources(self.config).values():
+            resource.download(self.data_dir, strict=strict)
 
-    @staticmethod
-    def _default_collate_sample(
-        data: Tuple[str, io.BufferedIOBase],
-        annotations: Optional[Dict[str, Dict[str, Any]]] = None,
-        strict: bool = True,
-    ) -> Dict[str, Any]:
-        path, image = data
-        path = pathlib.Path(path)
-        sample = dict(image=image, image_path=path)
-
-        if not annotations:
-            return sample
-
-        try:
-            annotation = annotations[path.name]
-        except KeyError:
-            if strict:
-                raise
-            else:
-                return sample
-
-        sample.update(annotation)
-        return sample
-
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
-        yield from self.dp
-
-    def __len__(self):
-        raise NotImplemented
+    def as_datapipe(
+        self, *, decoder: Optional[Callable[[io.BufferedIOBase], Any]] = None
+    ) -> IterDataPipe[Dict[str, Any]]:
+        datapipe = self._builder.datapipe(self.config, data_dir=self.data_dir)
+        if decoder:
+            datapipe = datapipe.map(functools.partial(_decode_sample, decoder=decoder))
+        return datapipe

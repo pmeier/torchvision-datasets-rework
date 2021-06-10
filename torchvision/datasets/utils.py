@@ -1,9 +1,8 @@
 import functools
 import hashlib
-import os
 import pathlib
 import urllib.request
-from typing import Dict, Optional, Union
+from typing import Optional, Union
 
 import torchvision
 from torch.hub import tqdm
@@ -24,6 +23,10 @@ class Resource:
             setattr(self, type, checksum)
         self.checksums = checksums
 
+    @property
+    def name(self) -> str:
+        return pathlib.Path(self.url).name
+
     @staticmethod
     @functools.lru_cache()
     def _compute_checksum(file: pathlib.Path, type: str, *, chunk_size: int = _CHUNK_SIZE) -> str:
@@ -34,10 +37,7 @@ class Resource:
         return hash.hexdigest()
 
     def _make_file(self, dir: Union[str, pathlib.Path], name: Optional[str]) -> pathlib.Path:
-        if not name:
-            name = os.path.basename(self.url)
-
-        return pathlib.Path(dir).resolve() / name
+        return pathlib.Path(dir).resolve() / (name or self.name)
 
     def check_integrity(
         self,
@@ -57,9 +57,14 @@ class Resource:
         return all(self._compute_checksum(file, type) == checksum for type, checksum in self.checksums.items())
 
     def download(
-        self, dir: Union[str, pathlib.Path], *, name: Optional[str] = None, chunk_size: int = _CHUNK_SIZE
+        self,
+        dir: Union[str, pathlib.Path],
+        *,
+        name: Optional[str] = None,
+        strict: bool = True,
+        chunk_size: int = _CHUNK_SIZE,
     ) -> None:
-        if self.check_integrity(dir, name=name):
+        if self.check_integrity(dir, name=name, strict=strict):
             return
 
         file = self._make_file(dir, name)
@@ -75,7 +80,7 @@ class Resource:
                         pbar.update(chunk_size)
                         fh.write(chunk)
 
-        if self.check_integrity(dir, name=name):
+        if self.check_integrity(dir, name=name, strict=strict):
             raise RuntimeError()
 
     def __repr__(self) -> str:
