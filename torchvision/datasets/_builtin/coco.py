@@ -2,31 +2,28 @@ import functools
 import json
 import pathlib
 from collections import defaultdict
-from types import SimpleNamespace
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List
 
 from torch.utils.data import IterDataPipe
 from torch.utils.data import datapipes as dp
-from torchvision.datasets.utils import Resource
 
-from .._builder import DatasetBuilder
-from .._meta import Meta
+from torchvision.datasets import Dataset, DatasetInfo
+from torchvision.datasets.utils import Config, Resource, Sample
 
 __all__ = ["Coco"]
 
 
-class Coco(DatasetBuilder):
-    META = Meta(
-        classes=pathlib.Path(__file__).parent / "coco.csv",
-    )
-    CONFIG_OPTIONS = dict(
-        split=("train", "val", "test"),
-        year=("2014",),
-    )
-
-    def __init__(self):
-        super().__init__()
-        self._annotations_map: Optional[Dict] = None
+class Coco(Dataset):
+    @property
+    def info(self):
+        return DatasetInfo(
+            "coco",
+            classes=pathlib.Path(__file__).parent / "coco.csv",
+            options=dict(
+                split=("train", "val", "test"),
+                year=("2014",),
+            ),
+        )
 
     def resources(self, config) -> Dict[str, Resource]:
         if config.year == "2014":
@@ -34,7 +31,7 @@ class Coco(DatasetBuilder):
                 if config.split == "train":
                     images = Resource(
                         "http://images.cocodataset.org/zips/train2014.zip",
-                        # sha512="7e7c25dbc992008f8d55e06c5bd31d96bbb68f68f944e6030dffd7f2b1158d6601f25aa20038a5a2041792430e4de1361e50066d50072918246982451c740949",
+                        sha512="7e7c25dbc992008f8d55e06c5bd31d96bbb68f68f944e6030dffd7f2b1158d6601f25aa20038a5a2041792430e4de1361e50066d50072918246982451c740949",
                     )
                 else:  # self.split == "val":
                     images = Resource()
@@ -50,7 +47,8 @@ class Coco(DatasetBuilder):
 
         return dict(images=images, annotations=annotations)
 
-    def _load_annotations_map(self, data_dir, *, config) -> Dict[str, Dict]:
+    @functools.lru_cache(maxsize=1)
+    def _load_annotations_map(self, data_dir, *, config) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
         annotations_archive = self._resource_path(data_dir, config=config, key="annotations")
         datapipe: Iterable = (str(annotations_archive),)
         datapipe = dp.iter.LoadFilesFromDisk(datapipe)
@@ -82,14 +80,9 @@ class Coco(DatasetBuilder):
                 for image_name in set(image_id_to_name.values()) - set(annotations.keys())
             }
         )
-
-        self._annotations_map = annotations_map
         return annotations_map
 
-    def _annotations(self, path: pathlib.Path, *, annotations_map: Dict) -> Dict[str, Any]:
-        return annotations_map[path.name]
-
-    def datapipe(self, config: SimpleNamespace, *, data_dir: pathlib.Path) -> IterDataPipe[Dict[str, Any]]:
+    def datapipe(self, config: Config, *, data_dir: pathlib.Path) -> IterDataPipe[Sample]:
         images_archive = self._resource_path(data_dir, config=config, key="images")
         datapipe: Iterable = (str(images_archive),)
         datapipe = dp.iter.LoadFilesFromDisk(datapipe)
@@ -97,10 +90,7 @@ class Coco(DatasetBuilder):
         return dp.iter.Map(
             datapipe,
             functools.partial(
-                self._default_collate_sample,
-                annotations=functools.partial(
-                    self._annotations,
-                    annotations_map=self._annotations_map or self._load_annotations_map(data_dir, config=config),
-                ),
+                self.default_collate_sample,
+                annotations=lambda path: self._load_annotations_map(data_dir, config=config)[path.name],
             ),
         )

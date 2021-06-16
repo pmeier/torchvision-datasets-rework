@@ -7,18 +7,12 @@ import torch
 from torch.utils.data import IterDataPipe
 from torch.utils.data import datapipes as dp
 from torch.utils.data.datapipes.utils.decoder import mathandler
-from torchvision.datasets.utils import Resource
 
-from .._builder import DatasetBuilder
-from .._meta import Meta
+from torchvision.datasets import Dataset, DatasetInfo
+from torchvision.datasets.utils import Config, Resource, Sample
 
 
-class Caltech101Builder(DatasetBuilder):
-    META = Meta(
-        homepage="http://www.vision.caltech.edu/Image_Datasets/Caltech101/",
-        classes=pathlib.Path(__file__).parent / "caltech101.csv",
-    )
-
+class Caltech101(Dataset):
     _ANNOTATIONS_CLASS_MAP = {
         "Faces_2": "Faces",
         "Faces_3": "Faces_easy",
@@ -27,10 +21,17 @@ class Caltech101Builder(DatasetBuilder):
     }
 
     def __init__(self):
-        super().__init__()
         self._annotations_map: Optional[Dict] = None
 
-    def resources(self, config) -> Dict[str, Resource]:
+    @property
+    def info(self) -> DatasetInfo:
+        return DatasetInfo(
+            "caltech101",
+            homepage="http://www.vision.caltech.edu/Image_Datasets/Caltech101/",
+            classes=pathlib.Path(__file__).parent / "caltech101.csv",
+        )
+
+    def resources(self, config: Config) -> Dict[str, Resource]:
         return dict(
             images=Resource(
                 "http://www.vision.caltech.edu/Image_Datasets/Caltech101/101_ObjectCategories.tar.gz",
@@ -48,6 +49,7 @@ class Caltech101Builder(DatasetBuilder):
     def _remove_rogue_image(self, data: Tuple[str, Any]) -> bool:
         return pathlib.Path(data[0]).name != "RENAME2"
 
+    @functools.lru_cache(maxsize=1)
     def _load_annotations_map(self, data_dir, *, config) -> Dict[Tuple[str, str], Dict[str, Any]]:
         annotations_archive = self._resource_path(data_dir, config=config, key="annotations")
         datapipe: Iterable = (str(annotations_archive),)
@@ -72,7 +74,7 @@ class Caltech101Builder(DatasetBuilder):
                 annotation_path=path,
                 contour=torch.as_tensor(annotation["obj_contour"]),
                 cls=cls,
-                label=self.class_to_label(cls),
+                label=self.info.class_to_label(cls),
             )
 
             annotations_map[key] = val
@@ -80,12 +82,14 @@ class Caltech101Builder(DatasetBuilder):
         self._annotations_map = annotations_map
         return annotations_map
 
-    def _annotations(self, path: pathlib.Path, *, annotations_map: Dict) -> Dict[str, Any]:
+    def _annotations(
+        self, path: pathlib.Path, *, annotations_map: Dict[Tuple[str, str], Dict[str, Any]]
+    ) -> Dict[str, Any]:
         cls = path.parent.name
         image_name = path.name
         return annotations_map[(cls, image_name)]
 
-    def datapipe(self, config, *, data_dir: pathlib.Path) -> IterDataPipe[Dict[str, Any]]:
+    def datapipe(self, config, *, data_dir: pathlib.Path) -> IterDataPipe[Sample]:
         images_archive = self._resource_path(data_dir, config=config, key="images")
         datapipe: Iterable = (str(images_archive),)
         datapipe = dp.iter.LoadFilesFromDisk(datapipe)
@@ -95,23 +99,25 @@ class Caltech101Builder(DatasetBuilder):
         return dp.iter.Map(
             datapipe,
             functools.partial(
-                self._default_collate_sample,
-                annotations=functools.partial(
-                    self._annotations,
-                    annotations_map=self._annotations_map or self._load_annotations_map(data_dir, config=config),
+                self.default_collate_sample,
+                annotations=lambda path: self._annotations(
+                    path, annotations_map=self._load_annotations_map(data_dir, config=config)
                 ),
             ),
         )
 
 
-class Caltech256Builder(DatasetBuilder):
-    META = Meta(
-        homepage="http://www.vision.caltech.edu/Image_Datasets/Caltech256/",
-        num_samples=30607,
-        classes=pathlib.Path(__file__).parent / "caltech256.csv",
-    )
+class Caltech256(Dataset):
+    @property
+    def info(self):
+        return DatasetInfo(
+            "caltech256",
+            homepage="http://www.vision.caltech.edu/Image_Datasets/Caltech256/",
+            num_samples=30607,
+            classes=pathlib.Path(__file__).parent / "caltech256.csv",
+        )
 
-    def resources(self, config) -> Dict[str, Resource]:
+    def resources(self, config: Config) -> Dict[str, Resource]:
         return dict(
             images=Resource(
                 "http://www.vision.caltech.edu/Image_Datasets/Caltech256/256_ObjectCategories.tar",
@@ -122,14 +128,14 @@ class Caltech256Builder(DatasetBuilder):
 
     def _annotations(self, path: pathlib.Path) -> Dict[str, Any]:
         label = int(path.parent.name.split(".")[0])
-        return dict(label=label, cls=self.label_to_class(label))
+        return dict(label=label, cls=self.info.label_to_class(label))
 
-    def datapipe(self, config, *, data_dir: pathlib.Path) -> IterDataPipe[Dict[str, Any]]:
+    def datapipe(self, config, *, data_dir: pathlib.Path) -> IterDataPipe[Sample]:
         images_archive = self._resource_path(data_dir, config=config, key="images")
         datapipe: Iterable = (str(images_archive),)
         datapipe = dp.iter.LoadFilesFromDisk(datapipe)
         datapipe = dp.iter.ReadFilesFromTar(datapipe)
         return dp.iter.Map(
             datapipe,
-            functools.partial(self._default_collate_sample, annotations=self._annotations),
+            functools.partial(self.default_collate_sample, annotations=self._annotations),
         )

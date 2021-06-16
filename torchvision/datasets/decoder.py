@@ -1,15 +1,17 @@
 import io
-from typing import Any, Callable, Dict
+from typing import Any, Callable
 
 import PIL.Image
 
 import torch as torch_
 
-__all__ = ["_decode_sample", "pil", "torch", "byte"]
+from torchvision.datasets.utils import Sample
+
+__all__ = ["decode_sample", "pil", "torch", "byte"]
 
 
-def _decode_sample(sample: Dict[str, Any], decoder: Callable[[io.BufferedIOBase], Any]) -> Dict[str, Any]:
-    return {key: decoder(data) if isinstance(data, io.BufferedIOBase) else data for key, data in sample.items()}
+def decode_sample(sample: Sample, decoder: Callable[[io.BufferedIOBase], Any]) -> Sample:
+    return Sample({key: decoder(data) if isinstance(data, io.BufferedIOBase) else data for key, data in sample.items()})
 
 
 def byte(data: io.BufferedIOBase) -> bytes:

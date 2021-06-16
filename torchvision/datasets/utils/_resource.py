@@ -4,14 +4,15 @@ import pathlib
 import urllib.request
 from typing import Optional, Union
 
-import torchvision
 from torch.hub import tqdm
+
+import torchvision
 
 __all__ = ["Resource"]
 
 
 class Resource:
-    _CHUNK_SIZE = 1024 * 1024
+    _CHUNK_SIZE = 1024 * 1024 * 50
     _USER_AGENT = f"torchvision=={torchvision.__version__}"
 
     def __init__(self, url: str, **checksums: Optional[str]) -> None:

@@ -16,9 +16,18 @@ known_third_party = [
     "more_itertools",
     "PIL",
 ]
-known_first_party = [
+known_pytorch = [
     "torch",
+]
+known_first_party = [
     "torchvision",
+]
+known_local_folder = ["tests", "utils"]
+
+sections= ["FUTURE", "STDLIB", "THIRDPARTY", "PYTORCH", "FIRSTPARTY", "LOCALFOLDER"]
+
+skip = [
+  "torchvision/datasets/__init__.py",
 ]
 
 [tool.black]
