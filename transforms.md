@@ -4,7 +4,7 @@ One major concern of the upstream implementation of datasets in `torchvision.dat
 
 We already decided that the rework will remove transforms from datasets. This means we need to provide an alternative that offers a similarly easy interface for simple use cases, while still being flexible enough to handle complex use cases. Opposed to the upstream implementation, the new API will return a datapipe and each sample drawn from it will be a dictionary that holds the data. This means we cannot simply use `dataset.map(torchvision.transforms.HorizontalFlip)` without modification.
 
-This post outlines how I envision the dataset-transformation-interplay with the reworked dataset API.
+This post outlines how I envision the dataset-transformation-interplay with the reworked dataset API. You can find a PoC implementation in the same PR.
 
 ## `Feature`'s of a dataset sample
 
@@ -25,7 +25,7 @@ class BoundingBox(Feature):
         pass
 ```
 
-that would make interacting with them a lot easier. Since for all intents and purposes they still act like regular tensors, a user does not have to worry about this at all. Plus, by returning, these specific types instead of raw `Tensor`'s, a transformation can know what to do with a passed argument.
+that would make interacting with them a lot easier. Since for all intents and purposes they still act like regular tensors, a user does not have to worry about this at all. Plus, by returning these specific types instead of raw `Tensor`'s, a transformation can know what to do with a passed argument.
 
 ## `Transform`'ing a dataset sample
 
@@ -38,7 +38,7 @@ The new API should have the following features:
 3. The transform should be able to handle the dataset output directly, i.e. a (possibly nested) dictionary of features.
 4. Apart from passing a multi-feature sample as a dictionary, it should also be possible to multiple arguments to the transform, which should be treated as one sample. For example, `image, bounding_box = HorizontalFlip()(image, bounding_box)` should be possible.
 
-2. - 4. only concern the dispatch, which can be handled in a custom `Transform` and thus be hidden from users as well someone who writes a new transform. Ignoring that, a transform could look like this:
+Points 2. - 4. only concern the dispatch, which can be handled in a custom `Transform` and thus be hidden from users as well someone who writes a new transform. Ignoring that, a transform could look like this:
 
 ```python
 class HorizontalFlip(Transform):
