@@ -2,139 +2,112 @@
 
 One major concern of the upstream implementation of datasets in `torchvision.dataset` are the optional `transform`, `target_transform`, and `transforms`. Apart from not being used in a [standardized way  across datasets](https://gist.github.com/pmeier/14756fe0501287b2974e03ab8d651c10), from a theoretical standpoint the transformation has nothing to do with the dataset.
 
-We already decided that the rework will remove transforms from datasets. That also means we need to provide an alternative. Opposed to the upstream implementation, the new API will return a datapipe and each sample drawn from it will be a dictionary that holds the data. This means we cannot simply `dataset.map(torchvision.transforms.Rotate(30.0))` on since the rotation transformation expects an image.
+We already decided that the rework will remove transforms from datasets. This means we need to provide an alternative that offers a similarly easy interface for simple use cases, while still being flexible enough to handle complex use cases. Opposed to the upstream implementation, the new API will return a datapipe and each sample drawn from it will be a dictionary that holds the data. This means we cannot simply use `dataset.map(torchvision.transforms.HorizontalFlip)` without modification.
 
 This post outlines how I envision the dataset-transformation-interplay with the reworked dataset API.
 
-## `FeatureTransform`
+## `Feature`'s of a dataset sample
 
-One pain point for the upstream implementation of transforms is the joint transformation of multiple features with the same transformation. For example images can be rotated with the `Rotate` transform, but corresponding bounding boxes cannot. To overcome this the first proposal of this post is the introduction of a `FeatureTransform` that is able to handle (possibly) multiple `Feature`'s (`Image`, `Video`, `BoundingBox`, ...):
+PyTorch is flexible enough to allow powerful subclassing of the core class: the `torch.Tensor`. Thus instead of having only the raw `Tensor`, we could add some custom `Feature` classes that represent the individual elements returned by a dataset. These classes could have special fields
 
 ```python
-class FeatureTransform:
-    def __init__(self):
-        self._transforms: Dict[Type[Feature], Callable[[Feature, Any], Any]] = {}
-
-    def _register_transform(
-        self, feature_type: Type[Feature], transform: Callable[[Feature, Any], Any]
-    ) -> None:
-        self._transforms[feature_type] = transform
-
+class Image(Feature):
     @property
-    def supported_feature_types(self) -> Set[Feature]:
-        return set(self._transforms.keys())
-
-    def __call__(self, feature: Feature, value: Any) -> Any:
-        feature_type = type(feature)
-        if feature_type not in self.supported_feature_types:
-            raise TypeError(f"Can't handle feature type {feature_type}")
-
-        transform = self._transforms[feature_type]
-        return transform(feature, value)
+    def image_size(self) -> Tuple[int, int]:
+        return self.shape[-2:]
 ```
 
-With this the `Rotate` transforms might look like this
+or methods
 
 ```python
-class Rotate(FeatureTransform):
-    def __init__(self, angle):
-        super().__init__()
-        self.angle = angle
-        self._register_transform(Image, self._image)
-        self._register_transform(BoundingBox, self._bounding_box)
-
-    def _image(self, feature: Image, value: Any) -> Any:
-        pass
-
-    def _bounding_box(self, feature: BoundingBox, value: Tuple[int, int, int, int]):
-        # the `feature` for example encodes the type of the bounding box, e.g. XYHW
+class BoundingBox(Feature):
+    def convert(self, format: str) -> "BoundingBox":
         pass
 ```
 
-and could be used like this:
+that would make interacting with them a lot easier. Since for all intents and purposes they still act like regular tensors, a user does not have to worry about this at all. Plus, by returning, these specific types instead of raw `Tensor`'s, a transformation can know what to do with a passed argument.
+
+## `Transform`'ing a dataset sample
+
+Passing `transform=HorizontalFlip()` to the constructor is hard to beat in terms of UX. Since we already decided, that this will not be a feature after the rework, the next best thing to apply a transform as a map to each sample, i.e. `dataset = dataset.map(HorizontalFlip())`. Unfortunately, this is not possible with our current transforms, since they only cannot deal with a sample as dictionary. In particular, all current transformations assume the input is an image.
+
+The new API should have the following features:
+
+1. Each transform should know which features it is able to handle and should do so without needing to explicitly calling anything. For example, `HorizontalFlip` needs to handle `Image`'s as well as `BoundingBox`'es. 
+2. The interface should be kept BC, i.e. `HorizontalFlip()(torch.rand(3, 16, 16))` should still work. 
+3. The transform should be able to handle the dataset output directly, i.e. a (possibly nested) dictionary of features.
+4. Apart from passing a multi-feature sample as a dictionary, it should also be possible to multiple arguments to the transform, which should be treated as one sample. For example, `image, bounding_box = HorizontalFlip()(image, bounding_box)` should be possible.
+
+2. - 4. only concern the dispatch, which can be handled in a custom `Transform` and thus be hidden from users as well someone who writes a new transform. Ignoring that, a transform could look like this:
 
 ```python
-transform = Rotate(30.0)
-transform(Image(), torch.rand(3, 256, 256))
-transform(BoundingBox(type="XYHW"), (0, 0, 256, 256))
+class HorizontalFlip(Transform):
+    _DEFAULT_FEATURE_TYPE = Image
+
+    @staticmethod
+    def image(image: Image) -> Image:
+        return Image(image.flip((-1,)))
+
+    @staticmethod
+    def bounding_box(bounding_box: BoundingBox, image_size: Tuple[int, int]) -> BoundingBox:
+        _, image_width = image_size
+
+        x, y, w, h = bounding_box.convert("xywh").unbind(-1)
+        x = (image_width - (x + w)).to(x)
+        bounding_box = torch.stack((x, y, w, h), dim=-1)
+
+        return BoundingBox(bounding_box, format="xywh")
+
+    def _apply_feature_transforms(self, sample: Any) -> Any:
+        return self._apply_image_and_bounding_box_transforms(
+            sample, image_transform=self.image, bounding_box_transform=self.bounding_box
+        )
 ```
 
-You might ask: "Why don't we simply add a new `rotate_bbox` function and not bother with the more complicated `Feature` passing?" Three reasons:
+1. The `_DEFAULT_FEATURE_TYPE` is `Image` meaning all raw `Tensor`'s that are passed to this are treated as `Image`'s.
+2. We have two separate methods to transform the different features. Since they are static, they can completely replace the functional interface we currently provide. For example, instead of using `transforms.functional.horizontal_flip()` we now can use `transforms.HorizontalFlip.image()`. Note that in the former case currently no namespacing for image or bounding box exist, since we only support images.
+3. Instead of implementing the feature transform dispatch from scratch for every transform, we can supply dispatch strategies for common combinations such as images and bounding boxes in the common superclass.
+4. Since the dispatch for the complete sample happens from a single point in `_apply_feature_transforms`, it is easy to perform the transforms with the same random parameters. For example, for `RandomRotate` the dispatch might look like
 
-1. We would clutter the namespace with concepts that clearly belong together.
-2. We would still need special handling for a joint transformation in case `angle` is not a fixed value but rather created at runtime, e.g. `RandomRotate`.
+   ```python
+   class RandomRotate(Transform):
+       def __init__(self, low, high):
+           super().__init__()
+           self._dist = torch.distributions.Uniform(low, high)
+   
+       def _apply_feature_transforms(self, sample: Any) -> Any:
+           angle = self._dist.sample()
+           return self._apply_image_and_bounding_box_transforms(
+               sample,
+               image_transform=functools.partial(self.image, angle=angle),
+               bounding_box_transform=functools.partial(self.bounding_box, angle=angle),
+           )
+   ```
 
-But the real kicker is:
+With this proposal, we achieve all the four requirements above. 
 
-3. The datasets can provide the `Feature` information so you don't have to supply it at all!
+## Implications
 
-Introducing: `SampleTransform`.
+- With this proposal, the new `Transform`'s will only work well with the datasets, if we wrap everything in the proposed custom `Feature` classes. 
+- Since the `Feature`'s are custom `Tensor`'s, the `Transform`'s will no longer work with `PIL` images. AFAIK, the plan to drop `PIL` support for `PIL` is not new at all. If `torchvision.io` is able to handle all kinds of image I/O, we could also completely remove `PIL` as dependency. If `PIL` is available nevertheless, we can provide `pil_to_tensor` and `tensor_to_pil` functions under `torch.utils` for convenience, but don't rely on them in the normal workflow.
+- Each transformation is now responsible for managing the return type. This should be fairly easy for all the builtin transforms, but might be an extra burden for custom transformations. For example, if a custom bounding box transform returns a raw `Tensor` instead of a `BoundingBox`, a successive transform might interpret it as `Image`. 
 
-## `SampleTransform`
+## Upgrade guide
 
-A good UX for applying transforms to a dataset should mean that the user in the default case doesn't need to bother with the feature types at all. That is, it should look similar to what the upstream implementation in simple cases currently provides with the `transform` parameter. To achieve this the second proposal of this post is a `SampleTransform`:
+Upgrading a simple image-only transformation
 
 ```python
-class SampleTransform:
-    def __init__(
-        self,
-        dataset_features: Dict[str, Feature],
-        *feature_transforms: FeatureTransform,
-        **key_transforms: Callable[[Feature, Any], Any],
-    ):
-        self.dataset_features = dataset_features
-        # populate this by cross-referencing dataset_features and feature_transforms
-        # and bail out if a key would be transformed by multiple transformations
-        self._key_transforms: Dict[str, Callable[[Feature, Any], Any]] = {}
-
-    def __call__(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            key: self._key_transforms[key](self.dataset_features[key], value) if key in self._key_transforms else value
-            for key, value in sample.items()
-        }
+class MyCustomTransform(nn.Module):
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        return my_custom_transform(image)
 ```
 
-A typical case might look like this:
+to the new structure is straight forward:
 
 ```python
-from torchvision import datasets, transforms
+class MyCustomTransform(torchvision.transforms.Transform):
+    _DEFAULT_FEATURE_TYPE = Image
 
-dataset, info = datasets.load("coco", with_info=True)
-transform = transforms.SampleTransform(info.features, transforms.Rotate(30.0))
-dataset = dataset.map(transform)
-```
-
-Without any knowledge of what features the dataset contains, all features of a sample that support rotation will now be rotated.
-
-### What about handling multiple successive transformations?
-
-`SampleTransform` relies on the fact that each key is only transformed by exactly one transformation. To overcome this we have 2 options:
-
-1. Ask the user to create multiple `SampleTransform`'s and successively `.map()` the dataset with them.
-    ```python
-    dataset = (
-        dataset
-        .map(transforms.SampleTransform(info.features, transforms.Rotate(30.0)))
-        .map(transforms.SampleTransform(info.features, transforms.HorizontalFlip()))
-    )
-    ```
-2. Create a `Sequential` feature transformation that defines a clear order of execution of the included transformations.
-    ```python
-    transform = transforms.SampleTransform(
-        info.features,
-        transforms.Sequential(
-            transforms.Rotate(30.0),
-            transforms.HorizontalFlip(),
-        )info.features
-    )
-    ```
-
-I'll vote for 2. here, since although it is more code for us to maintain, it is a far better UX for the user.
-
-### What if I want to apply a transformation to a single key rather than all features of a supported type?
-
-Since internally `SampleTransform` dispatches by the sample key rather than `Feature` type, one can simply supply it as keyword argument. For example, if I wanted to rotate only the key `"image"` and not possibly available bounding boxes or segmentation masks, the transformation would look like:
-
-```python
-transform = SampleTransform(info.features, image=Rotate(30.0))
+    def _apply_feature_transforms(self, sample: Any) -> Any:
+        return self._apply_to_feature_type(sample, Image, my_custom_transform)
 ```
