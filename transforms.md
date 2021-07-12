@@ -29,7 +29,7 @@ that would make interacting with them a lot easier. Since for all intents and pu
 
 ## `Transform`'ing a dataset sample
 
-Passing `transform=HorizontalFlip()` to the constructor is hard to beat in terms of UX. Since we already decided, that this will not be a feature after the rework, the next best thing to apply a transform as a map to each sample, i.e. `dataset = dataset.map(HorizontalFlip())`. Unfortunately, this is not possible with our current transforms, since they only cannot deal with a sample as dictionary. In particular, all current transformations assume the input is an image.
+Passing `transform=HorizontalFlip()` to the constructor of a dataset is hard to beat in terms of UX. Since we already decided, that this will not be a feature after the rework, the next best thing to apply a transform as a map to each sample, i.e. `dataset = dataset.map(HorizontalFlip())`. Unfortunately, this is not possible with our current transforms, since they cannot deal with a dictionary as input. In particular, all current transformations assume the input is an image.
 
 The new API should have the following features:
 
@@ -89,7 +89,7 @@ With this proposal, we achieve all the four requirements above.
 ## Implications
 
 - With this proposal, the new `Transform`'s will only work well with the datasets, if we wrap everything in the proposed custom `Feature` classes. 
-- Since the `Feature`'s are custom `Tensor`'s, the `Transform`'s will no longer work with `PIL` images. AFAIK, the plan to drop `PIL` support for `PIL` is not new at all. If `torchvision.io` is able to handle all kinds of image I/O, we could also completely remove `PIL` as dependency. If `PIL` is available nevertheless, we can provide `pil_to_tensor` and `tensor_to_pil` functions under `torch.utils` for convenience, but don't rely on them in the normal workflow.
+- Since the `Feature`'s are custom `Tensor`'s, the `Transform`'s will no longer work with `PIL` images. AFAIK, the plan to drop `PIL` support is not new at all. If `torchvision.io` is able to handle all kinds of image I/O, we could also completely remove `PIL` as dependency. If `PIL` is available nevertheless, we can provide `pil_to_tensor` and `tensor_to_pil` functions under `torch.utils` for convenience, but don't rely on them in the normal workflow.
 - Each transformation is now responsible for managing the return type. This should be fairly easy for all the builtin transforms, but might be an extra burden for custom transformations. For example, if a custom bounding box transform returns a raw `Tensor` instead of a `BoundingBox`, a successive transform might interpret it as `Image`. 
 
 ## Upgrade guide
