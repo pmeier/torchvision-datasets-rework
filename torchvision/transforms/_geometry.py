@@ -1,5 +1,3 @@
-from typing import Any, Tuple
-
 import torch
 
 from torchvision.features import BoundingBox, Image
@@ -10,23 +8,35 @@ __all__ = ["HorizontalFlip"]
 
 
 class HorizontalFlip(Transform):
-    _DEFAULT_FEATURE_TYPE = Image
+    def __init__(self):
+        super().__init__()
+        # TODO: Automate this!
+        self.register_feature_transform(Image, self.image)
+        self.register_feature_transform(BoundingBox, self.bounding_box)
 
     @staticmethod
-    def image(image: torch.Tensor) -> Image:
+    def image(image: Image) -> Image:
         return Image(image.flip((-1,)))
 
     @staticmethod
-    def bounding_box(bounding_box: BoundingBox, image_size: Tuple[int, int]) -> BoundingBox:
-        _, image_width = image_size
+    def bounding_box(bounding_box: BoundingBox) -> BoundingBox:
+        x, y, w, h = bounding_box.convert("xywh").to_parts()
+        x = bounding_box.image_size[1] - (x + w)
+        return BoundingBox.from_parts(x, y, w, h, image_size=bounding_box.image_size, format="xywh")
 
-        x, y, w, h = bounding_box.convert("xywh").unbind(-1)
-        x = (image_width - (x + w)).to(x)
-        bounding_box = torch.stack((x, y, w, h), dim=-1)
 
-        return BoundingBox(bounding_box, format="xywh")
+class Rotate(Transform):
+    def __init__(self, low, high):
+        super().__init__()
+        self._dist = torch.distributions.Uniform(low, high)
 
-    def _apply_feature_transforms(self, sample: Any) -> Any:
-        return self._apply_image_and_bounding_box_transforms(
-            sample, image_transform=self.image, bounding_box_transform=self.bounding_box
-        )
+    def forward(self, *inputs: torch.Tensor):
+        return super().forward(*inputs, degrees=self._dist.sample().item())
+
+    @staticmethod
+    def image(image: Image, *, degrees: float) -> Image:
+        return image
+
+    @staticmethod
+    def bounding_box(bounding_box: BoundingBox, *, degrees: float) -> BoundingBox:
+        return bounding_box

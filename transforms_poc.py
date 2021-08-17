@@ -6,22 +6,14 @@ from torchvision.features import BoundingBox, Image
 image = Image(torch.rand(3, 10, 10))
 image_e = torch.flip(image, (-1,))
 
-bbox = BoundingBox(torch.tensor([7, 3, 9, 8]), format="xyxy")
-bbox_e = BoundingBox(torch.tensor([1, 3, 3, 8]), format="xyxy")
+bbox = BoundingBox(torch.tensor([7, 3, 9, 8]), image_size=image.image_size, format="xyxy")
+bbox_e = BoundingBox(torch.tensor([1, 3, 3, 8]), image_size=image_e.image_size, format="xyxy")
 
 transform = transforms.HorizontalFlip()
 
-
 torch.testing.assert_close(transform(image), image_e)
 
-try:
-    transform(bbox)
-except RuntimeError:
-    pass
-else:
-    raise AssertionError(
-        "Bounding boxes cannot be transformed without knowing the image shape, but no image was provided"
-    )
+torch.testing.assert_close(transform(bbox).convert("xyxy"), bbox_e)
 
 sample_a = transform(dict(image=image, bbox=bbox))
 torch.testing.assert_close(sample_a["image"], image_e)

@@ -36,52 +36,54 @@ The new API should have the following features:
 1. Each transform should know which features it is able to handle and should do so without needing to explicitly calling anything. For example, `HorizontalFlip` needs to handle `Image`'s as well as `BoundingBox`'es. 
 2. The interface should be kept BC, i.e. `HorizontalFlip()(torch.rand(3, 16, 16))` should still work. 
 3. The transform should be able to handle the dataset output directly, i.e. a (possibly nested) dictionary of features.
-4. Apart from passing a multi-feature sample as a dictionary, it should also be possible to multiple arguments to the transform, which should be treated as one sample. For example, `image, bounding_box = HorizontalFlip()(image, bounding_box)` should be possible.
+4. Apart from passing a multi-feature sample as a dictionary, it should also be possible to multiple arguments to the transform For example, `image, bounding_box = HorizontalFlip()(image, bounding_box)` should be possible.
 
 Points 2. - 4. only concern the dispatch, which can be handled in a custom `Transform` and thus be hidden from users as well someone who writes a new transform. Ignoring that, a transform could look like this:
 
 ```python
 class HorizontalFlip(Transform):
-    _DEFAULT_FEATURE_TYPE = Image
+    def __init__(self):
+        super().__init__()
+        # TODO: Automate this! We could inspect self and look for public, static methods with names or annotations
+        #  matching a Feature type
+        self.register_feature_transform(Image, self.image)
+        self.register_feature_transform(BoundingBox, self.bounding_box)
 
     @staticmethod
     def image(image: Image) -> Image:
         return Image(image.flip((-1,)))
 
     @staticmethod
-    def bounding_box(bounding_box: BoundingBox, image_size: Tuple[int, int]) -> BoundingBox:
-        _, image_width = image_size
-
-        x, y, w, h = bounding_box.convert("xywh").unbind(-1)
-        x = (image_width - (x + w)).to(x)
-        bounding_box = torch.stack((x, y, w, h), dim=-1)
-
-        return BoundingBox(bounding_box, format="xywh")
-
-    def _apply_feature_transforms(self, sample: Any) -> Any:
-        return self._apply_image_and_bounding_box_transforms(
-            sample, image_transform=self.image, bounding_box_transform=self.bounding_box
-        )
+    def bounding_box(bounding_box: BoundingBox) -> BoundingBox:
+        x, y, w, h = bounding_box.convert("xywh").to_parts()
+        x = bounding_box.image_size[1] - (x + w)
+        return BoundingBox.from_parts(x, y, w, h, image_size=bounding_box.image_size, format="xywh")
 ```
 
-1. The `_DEFAULT_FEATURE_TYPE` is `Image` meaning all raw `Tensor`'s that are passed to this are treated as `Image`'s.
-2. We have two separate methods to transform the different features. Since they are static, they can completely replace the functional interface we currently provide. For example, instead of using `transforms.functional.horizontal_flip()` we now can use `transforms.HorizontalFlip.image()`. Note that in the former case currently no namespacing for image or bounding box exist, since we only support images.
-3. Instead of implementing the feature transform dispatch from scratch for every transform, we can supply dispatch strategies for common combinations such as images and bounding boxes in the common superclass.
-4. Since the dispatch for the complete sample happens from a single point in `_apply_feature_transforms`, it is easy to perform the transforms with the same random parameters. For example, for `RandomRotate` the dispatch might look like
+1We have two separate methods to transform the different features. Since they are static, they can completely replace the functional interface we currently provide. For example, instead of using `transforms.functional.horizontal_flip()` we now can use `transforms.HorizontalFlip.image()`. Note that in the former case currently no namespacing for image or bounding box exist, since we only support images.
+2. Instead of implementing the feature transform dispatch from scratch for every transform, we can simply register our feature transforms so the dispatch can happen automatically by feature type. We have additional option to automate this even more: if we agree on a identifying scheme, the registering process could happen at instantiation through introspection. One such scheme could be to register all methods that
+   1. are public (no leading `_`),
+   2. are static,
+   3. their name matches a known feature type (converting snake case to camel case, i.e. `bounding_box` to `BoundingBox`), and,
+   4. if annotations are available, the first argument as well as the return type is annotated with the corresponding feature type.
+3. Since the dispatch for the complete sample happens from a single point in the `forward` method, it is easy to perform the transforms with the same random parameters. For example, for `RandomRotate` the dispatch might look like
 
    ```python
-   class RandomRotate(Transform):
+   class Rotate(Transform):
        def __init__(self, low, high):
            super().__init__()
            self._dist = torch.distributions.Uniform(low, high)
    
-       def _apply_feature_transforms(self, sample: Any) -> Any:
-           angle = self._dist.sample()
-           return self._apply_image_and_bounding_box_transforms(
-               sample,
-               image_transform=functools.partial(self.image, angle=angle),
-               bounding_box_transform=functools.partial(self.bounding_box, angle=angle),
-           )
+       def forward(self, *inputs: torch.Tensor):
+           return super().forward(*inputs, degrees=self._dist.sample())
+   
+       @staticmethod
+       def image(image: Image, *, degrees: float) -> Image:
+           pass
+   
+       @staticmethod
+       def bounding_box(bounding_box: BoundingBox, *, degrees: float) -> BoundingBox:
+           pass
    ```
 
 With this proposal, we achieve all the four requirements above. 
@@ -90,7 +92,7 @@ With this proposal, we achieve all the four requirements above.
 
 - With this proposal, the new `Transform`'s will only work well with the datasets, if we wrap everything in the proposed custom `Feature` classes. 
 - Since the `Feature`'s are custom `Tensor`'s, the `Transform`'s will no longer work with `PIL` images. AFAIK, the plan to drop `PIL` support is not new at all. If `torchvision.io` is able to handle all kinds of image I/O, we could also completely remove `PIL` as dependency. If `PIL` is available nevertheless, we can provide `pil_to_tensor` and `tensor_to_pil` functions under `torch.utils` for convenience, but don't rely on them in the normal workflow.
-- Each transformation is now responsible for managing the return type. This should be fairly easy for all the builtin transforms, but might be an extra burden for custom transformations. For example, if a custom bounding box transform returns a raw `Tensor` instead of a `BoundingBox`, a successive transform might interpret it as `Image`. 
+- Each transformation is now responsible for managing the return type. This should be fairly easy for all the builtin transforms, but might be an extra burden for custom transformations. For example, if a custom bounding box transform returns a raw `Tensor` instead of a `BoundingBox`, a successive transform will interpret it as `Image`. 
 
 ## Upgrade guide
 
@@ -105,9 +107,8 @@ class MyCustomTransform(nn.Module):
 to the new structure is straight forward:
 
 ```python
-class MyCustomTransform(torchvision.transforms.Transform):
-    _DEFAULT_FEATURE_TYPE = Image
-
-    def _apply_feature_transforms(self, sample: Any) -> Any:
-        return self._apply_to_feature_type(sample, Image, my_custom_transform)
+class MyCustomTransform(Transform):
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_feature_transform(Image, my_custom_transform)
 ```
