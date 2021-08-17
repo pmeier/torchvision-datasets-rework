@@ -44,8 +44,6 @@ Points 2. - 4. only concern the dispatch, which can be handled in a custom `Tran
 class HorizontalFlip(Transform):
     def __init__(self):
         super().__init__()
-        # TODO: Automate this! We could inspect self and look for public, static methods with names or annotations
-        #  matching a Feature type
         self.register_feature_transform(Image, self.image)
         self.register_feature_transform(BoundingBox, self.bounding_box)
 
@@ -60,12 +58,13 @@ class HorizontalFlip(Transform):
         return BoundingBox.from_parts(x, y, w, h, image_size=bounding_box.image_size, format="xywh")
 ```
 
-1We have two separate methods to transform the different features. Since they are static, they can completely replace the functional interface we currently provide. For example, instead of using `transforms.functional.horizontal_flip()` we now can use `transforms.HorizontalFlip.image()`. Note that in the former case currently no namespacing for image or bounding box exist, since we only support images.
+1. We have two separate methods to transform the different features. Since they are static, they can completely replace the functional interface we currently provide. For example, instead of using `transforms.functional.horizontal_flip()` we now can use `transforms.HorizontalFlip.image()`. Note that in the former case currently no namespacing for image or bounding box exist, since we only support images.
 2. Instead of implementing the feature transform dispatch from scratch for every transform, we can simply register our feature transforms so the dispatch can happen automatically by feature type. We have additional option to automate this even more: if we agree on a identifying scheme, the registering process could happen at instantiation through introspection. One such scheme could be to register all methods that
    1. are public (no leading `_`),
    2. are static,
    3. their name matches a known feature type (converting snake case to camel case, i.e. `bounding_box` to `BoundingBox`), and,
    4. if annotations are available, the first argument as well as the return type is annotated with the corresponding feature type.
+
 3. Since the dispatch for the complete sample happens from a single point in the `forward` method, it is easy to perform the transforms with the same random parameters. For example, for `RandomRotate` the dispatch might look like
 
    ```python
