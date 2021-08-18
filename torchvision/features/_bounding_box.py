@@ -1,5 +1,5 @@
 import enum
-from typing import Any, Union, Tuple
+from typing import Any, Tuple, Union
 
 import torch
 

@@ -59,30 +59,38 @@ class HorizontalFlip(Transform):
 ```
 
 1. We have two separate methods to transform the different features. Since they are static, they can completely replace the functional interface we currently provide. For example, instead of using `transforms.functional.horizontal_flip()` we now can use `transforms.HorizontalFlip.image()`. Note that in the former case currently no namespacing for image or bounding box exist, since we only support images.
-2. Instead of implementing the feature transform dispatch from scratch for every transform, we can simply register our feature transforms so the dispatch can happen automatically by feature type. We have additional option to automate this even more: if we agree on a identifying scheme, the registering process could happen at instantiation through introspection. One such scheme could be to register all methods that
+2. Instead of implementing the feature transform dispatch from scratch for every transform, we can simply register our feature transforms so the dispatch can happen automatically by feature type. We have additional option to automate this even more: if we agree on an identifying scheme, the registering process could happen at instantiation through introspection. One such scheme could be to register all methods that
    1. are public (no leading `_`),
    2. are static,
    3. their name matches a known feature type (converting snake case to camel case, i.e. `bounding_box` to `BoundingBox`), and,
    4. if annotations are available, the first argument as well as the return type is annotated with the corresponding feature type.
 
-3. Since the dispatch for the complete sample happens from a single point in the `forward` method, it is easy to perform the transforms with the same random parameters. For example, for `RandomRotate` the dispatch might look like
+3. Since the dispatch for the complete sample happens from a single point in the `forward` method, it is easy to perform the transforms with the same random parameters. For example, for `RandomRotate` the implementation might look like
 
    ```python
-   class Rotate(Transform):
-       def __init__(self, low, high):
+   class RandomRotate(Transform):
+       def __init__(self, low: float, high: float) -> None:
            super().__init__()
            self._dist = torch.distributions.Uniform(low, high)
    
-       def forward(self, *inputs: torch.Tensor):
-           return super().forward(*inputs, degrees=self._dist.sample())
+       def get_params(self, sample: Any = None) -> Dict[str, Any]:
+           return dict(degrees=self._dist.sample().item())
    
        @staticmethod
        def image(image: Image, *, degrees: float) -> Image:
-           pass
+           return image
    
        @staticmethod
        def bounding_box(bounding_box: BoundingBox, *, degrees: float) -> BoundingBox:
-           pass
+           return bounding_box
+   ```
+
+   Since we can optionally pass the `sample` to `.get_params()`, the parameters can also depend on the input, which is required for some transforms like [`RandomErasing`](https://github.com/pytorch/vision/blob/f3aff2fa60c110c25df671b6f99ffb26727cb8ae/torchvision/transforms/transforms.py#L1608). Additionally, if required, we can also use the same set of random parameters for multiple distinct transforms:
+
+   ```python
+   params = transform1.get_params()
+   output1 = transform1(input1, params=params)
+   output2 = transform2(input2, params=params)
    ```
 
 With this proposal, we achieve all the four requirements above. 
