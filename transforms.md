@@ -111,3 +111,7 @@ class MyCustomTransform(Transform):
         super().__init__()
         self.register_feature_transform(Image, my_custom_transform)
 ```
+
+## Composed transforms
+
+`transforms.Compose` works out of the box with the proposed approach. Still, we can't use an `nn.Sequential` directly, since the proposed approach requires an arbitrary number of call arguments, e.g. `*inputs`, whereas `nn.Sequential` only uses one.

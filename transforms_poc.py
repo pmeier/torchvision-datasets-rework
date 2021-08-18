@@ -22,3 +22,9 @@ torch.testing.assert_close(sample_a["bbox"].convert("xyxy"), bbox_e)
 image_a, bbox_a = transform(image, bbox)
 torch.testing.assert_close(image_a, image_e)
 torch.testing.assert_close(bbox_a.convert("xyxy"), bbox_e)
+
+composed_transform = transforms.Compose(transform, transform)
+
+image_a, bbox_a = composed_transform(image, bbox)
+torch.testing.assert_close(image_a, image)
+torch.testing.assert_close(bbox_a.convert("xyxy"), bbox)

@@ -7,12 +7,10 @@ from torch import nn
 from torchvision.features import Feature, Image
 
 
-__all__ = ["Transform"]
+__all__ = ["Transform", "Compose"]
 
 
 class Transform(nn.Module):
-    _DEFAULT_FEATURE_TYPE: Type[Feature]
-
     def __init__(self):
         super().__init__()
         self._feature_transforms: Dict[Type[Feature], Callable] = {}
@@ -36,7 +34,6 @@ class Transform(nn.Module):
                     sample = Image(sample)
 
                 feature_type = type(sample)
-
                 if feature_type not in self._feature_transforms:
                     return sample
 
@@ -45,3 +42,14 @@ class Transform(nn.Module):
 
         sample = inputs if len(inputs) > 1 else inputs[0]
         return apply(sample)
+
+
+class Compose(nn.Module):
+    def __init__(self, *transforms: Transform) -> None:
+        super().__init__()
+        self._transforms = transforms
+
+    def forward(self, *inputs: Any) -> Any:
+        for transform in self._transforms:
+            inputs = transform(*inputs)
+        return inputs
