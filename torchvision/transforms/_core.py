@@ -29,21 +29,21 @@ class Transform(nn.Module):
         for feature_type in (Image, BoundingBox)
     }
 
-    def __init__(self, *, auto_register: bool = True) -> None:
-        super().__init__()
-        self._feature_transforms: Dict[Type[Feature], Callable] = {}
+    def __init_subclass__(cls, *, auto_register: bool = True):
+        cls._feature_transforms: Dict[Type[Feature], Callable] = {}
         if auto_register:
-            self._auto_register()
+            cls._auto_register()
 
-    def _auto_register(self) -> None:
-        for name, value in inspect.getmembers(self):
+    @classmethod
+    def _auto_register(cls) -> None:
+        for name, value in inspect.getmembers(cls):
             # attribute is private
             if name.startswith("_"):
                 continue
 
             # attribute name does not match any known feature
             try:
-                feature_type = self._KNOWN_FEATURE_TYPES[name]
+                feature_type = cls._KNOWN_FEATURE_TYPES[name]
             except KeyError:
                 continue
 
@@ -56,10 +56,27 @@ class Transform(nn.Module):
             if len(argspec.args) != 1:
                 continue
 
-            self.register_feature_transform(feature_type, value)
+            cls.register_feature_transform(feature_type, value)
 
-    def register_feature_transform(self, feature_type: Type[Feature], transform: Callable) -> None:
-        self._feature_transforms[feature_type] = transform
+    @classmethod
+    def register_feature_transform(cls, feature_type: Type[Feature], transform: Callable) -> None:
+        cls._feature_transforms[feature_type] = transform
+
+    @classmethod
+    def apply(cls, input: torch.Tensor, **params: Any) -> torch.Tensor:
+        feature_type = type(input)
+        if not (feature_type is torch.Tensor or feature_type in cls._feature_transforms):
+            raise TypeError(f"{cls}() is not able to handle inputs of type {feature_type}.")
+
+        # TODO: if the other domain libraries adopt our approach, we need to make the default type variable.
+        #  The only constraint is that it needs to instantiable from a regular tensor without any additional
+        #  parameters.
+        if feature_type is torch.Tensor:
+            feature_type = Image
+            input = feature_type(input)
+
+        feature_transform = cls._feature_transforms[feature_type]
+        return feature_transform(input, **params)
 
     def get_params(self, sample: Any) -> Dict[str, Any]:
         return dict()
@@ -75,33 +92,13 @@ class Transform(nn.Module):
             elif isinstance(sample, collections.abc.Mapping):
                 return {name: apply(item) for name, item in sample.items()}
             else:
-                if not isinstance(sample, torch.Tensor):
-                    return sample
-                elif type(sample) is torch.Tensor:
-                    # TODO: if the other domain libraries adopt our approach, we need to make the default type variable.
-                    #  The only constraint is that it needs to instantiable from a regular tensor without any additional
-                    #  parameters.
-                    sample = Image(sample)
-
                 feature_type = type(sample)
-                if feature_type not in self._feature_transforms:
+                if not (feature_type is torch.Tensor or feature_type in self._feature_transforms):
                     return sample
 
-                feature_transform = self._feature_transforms[feature_type]
-                return feature_transform(sample, **params)
+                return self.apply(sample, **params)
 
         return apply(sample)
-
-    def apply(self, input: torch.Tensor, **params: Any) -> torch.Tensor:
-        feature_type = type(input)
-        if not (issubclass(feature_type, torch.Tensor) and feature_type in self._feature_transforms):
-            raise TypeError(f"{type(self)} is not able to handle inputs of type {feature_type}.")
-
-        if feature_type is torch.Tensor:
-            feature_type = Image
-
-        feature_transform = self._feature_transforms[feature_type]
-        return feature_transform(input, **params)
 
 
 class Compose(nn.Module):
