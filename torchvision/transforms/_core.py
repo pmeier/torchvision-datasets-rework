@@ -92,6 +92,17 @@ class Transform(nn.Module):
 
         return apply(sample)
 
+    def apply(self, input: torch.Tensor, **params: Any) -> torch.Tensor:
+        feature_type = type(input)
+        if not (issubclass(feature_type, torch.Tensor) and feature_type in self._feature_transforms):
+            raise TypeError(f"{type(self)} is not able to handle inputs of type {feature_type}.")
+
+        if feature_type is torch.Tensor:
+            feature_type = Image
+
+        feature_transform = self._feature_transforms[feature_type]
+        return feature_transform(input, **params)
+
 
 class Compose(nn.Module):
     def __init__(self, *transforms: Transform) -> None:
