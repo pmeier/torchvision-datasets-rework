@@ -69,11 +69,9 @@ class Transform(nn.Module):
             raise TypeError(f"{cls}() is not able to handle inputs of type {feature_type}.")
 
         # TODO: if the other domain libraries adopt our approach, we need to make the default type variable.
-        #  The only constraint is that it needs to instantiable from a regular tensor without any additional
-        #  parameters.
         if feature_type is torch.Tensor:
             feature_type = Image
-            input = feature_type(input)
+            input = Image.from_tensor(input)
 
         feature_transform = cls._feature_transforms[feature_type]
         return feature_transform(input, **params)

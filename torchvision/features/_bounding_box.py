@@ -1,9 +1,9 @@
 import enum
-from typing import Any, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import torch
 
-from ._core import Feature
+from ._core import TensorFeature
 
 __all__ = ["BoundingBox", "BoundingBoxFormat"]
 
@@ -14,7 +14,7 @@ class BoundingBoxFormat(enum.Enum):
     CXCYWH = "CXCYWH"
 
 
-class BoundingBox(Feature):
+class BoundingBox(TensorFeature):
     formats = BoundingBoxFormat
 
     @staticmethod
@@ -29,7 +29,6 @@ class BoundingBox(Feature):
         *,
         image_size: Tuple[int, int],
         format: Union[str, BoundingBoxFormat],
-        requires_grad=False,
     ):
         super().__init__()
         self._image_size = image_size
@@ -50,10 +49,29 @@ class BoundingBox(Feature):
         *,
         image_size: Tuple[int, int],
         format: Union[str, BoundingBoxFormat],
-        requires_grad=False,
     ):
         # Since torch.Tensor defines both __new__ and __init__, we also need to do that since we change the signature
-        return super().__new__(cls, data, requires_grad=requires_grad)
+        return super().__new__(cls, data)
+
+    @classmethod
+    def from_tensor(
+        cls,
+        tensor: torch.Tensor,
+        *,
+        like: Optional["BoundingBox"] = None,
+        image_size: Optional[Tuple[int, int]] = None,
+        format: Optional[Union[str, BoundingBoxFormat]] = None,
+    ) -> "BoundingBox":
+        params = cls._parse_from_tensor_args(like=like, image_size=image_size, format=format)
+
+        format = params.get("format") or "xyxy"
+
+        image_size = params.get("image_size")
+        if image_size is None:
+            # TODO: compute minimum image size needed to hold this bounding box depending on format
+            image_size = (0, 0)
+
+        return cls(tensor, image_size=image_size, format=format)
 
     @property
     def image_size(self) -> Tuple[int, int]:
@@ -71,10 +89,11 @@ class BoundingBox(Feature):
         c,
         d,
         *,
-        image_size: Tuple[int, int],
         format: Union[str, BoundingBoxFormat],
+        like: Optional["BoundingBox"] = None,
+        image_size: Optional[Tuple[int, int]] = None,
     ) -> "BoundingBox":
-        return cls(torch.stack((a, b, c, d), dim=-1), image_size=image_size, format=format)
+        return cls.from_tensor(torch.stack((a, b, c, d), dim=-1), like=like, image_size=image_size, format=format)
 
     def to_parts(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.unbind(-1)
@@ -97,45 +116,45 @@ class BoundingBox(Feature):
         return bounding_box
 
     @staticmethod
-    def _xywh_to_xyxy(bounding_box: "BoundingBox") -> "BoundingBox":
-        x, y, w, h = bounding_box.to_parts()
+    def _xywh_to_xyxy(input: "BoundingBox") -> "BoundingBox":
+        x, y, w, h = input.to_parts()
 
         x1 = x
         y1 = y
         x2 = x + w
         y2 = y + h
 
-        return BoundingBox.from_parts(x1, y1, x2, y2, image_size=bounding_box.image_size, format="xyxy")
+        return BoundingBox.from_parts(x1, y1, x2, y2, like=input, format="xyxy")
 
     @staticmethod
-    def _xyxy_to_xywh(bounding_box: "BoundingBox") -> "BoundingBox":
-        x1, y1, x2, y2 = bounding_box.to_parts()
+    def _xyxy_to_xywh(input: "BoundingBox") -> "BoundingBox":
+        x1, y1, x2, y2 = input.to_parts()
 
         x = x1
         y = y1
         w = x2 - x1
         h = y2 - y1
 
-        return BoundingBox.from_parts(x, y, w, h, image_size=bounding_box.image_size, format="xywh")
+        return BoundingBox.from_parts(x, y, w, h, format="xywh")
 
     @staticmethod
-    def _cxcywh_to_xyxy(bounding_box: "BoundingBox") -> "BoundingBox":
-        cx, cy, w, h = bounding_box.to_parts()
+    def _cxcywh_to_xyxy(input: "BoundingBox") -> "BoundingBox":
+        cx, cy, w, h = input.to_parts()
 
         x1 = cx - 0.5 * w
         y1 = cy - 0.5 * h
         x2 = cx + 0.5 * w
         y2 = cy + 0.5 * h
 
-        return BoundingBox.from_parts(x1, y1, x2, y2, image_size=bounding_box.image_size, format="xyxy")
+        return BoundingBox.from_parts(x1, y1, x2, y2, like=input, format="xyxy")
 
     @staticmethod
-    def _xyxy_to_cxcywh(bounding_box: "BoundingBox") -> "BoundingBox":
-        x1, y1, x2, y2 = bounding_box.to_parts()
+    def _xyxy_to_cxcywh(input: "BoundingBox") -> "BoundingBox":
+        x1, y1, x2, y2 = input.to_parts()
 
         cx = (x1 + x2) / 2
         cy = (y1 + y2) / 2
         w = x2 - x1
         h = y2 - y1
 
-        return BoundingBox.from_parts(cx, cy, w, h, image_size=bounding_box.image_size, format="cxcywh")
+        return BoundingBox.from_parts(cx, cy, w, h, like=input, format="cxcywh")

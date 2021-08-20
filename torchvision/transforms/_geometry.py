@@ -18,7 +18,7 @@ class HorizontalFlip(Transform):
     def bounding_box(input: BoundingBox) -> BoundingBox:
         x, y, w, h = input.convert("xywh").to_parts()
         x = input.image_size[1] - (x + w)
-        return BoundingBox.from_parts(x, y, w, h, image_size=input.image_size, format="xywh")
+        return BoundingBox.from_parts(x, y, w, h, like=input, format="xywh")
 
 
 class RandomRotate(Transform):
