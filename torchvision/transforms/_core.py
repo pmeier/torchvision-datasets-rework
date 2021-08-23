@@ -41,12 +41,12 @@ class Transform(nn.Module):
         for feature_type in (Image, BoundingBox)
     }
 
-    def __init_subclass__(self, *, auto_register: bool = True):
-        self.initialized = False
-        self.reset_auto = True
-        self._feature_transforms: Dict[Type[Feature], Callable] = {}
+    def __init_subclass__(cls, *, auto_register: bool = True):
+        cls.initialized = False
+        cls.reset_auto = True
+        cls._feature_transforms: Dict[Type[Feature], Callable] = {}
         if auto_register:
-            self._auto_register()
+            cls._auto_register()
 
     def set_reset_auto(self, mode=True):
         self.reset_auto = mode
