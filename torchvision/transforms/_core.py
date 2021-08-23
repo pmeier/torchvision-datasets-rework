@@ -29,10 +29,13 @@ class TransformDispatch:
         self.transform = transform
         self.transform.set_reset_auto(False)
 
-    def __call__(self, input_dict):
-        input_dict = {key: self.transform(value) for key, value in input_dict.items()}
+    def __call__(self, inputs):
+        if isinstance(inputs, collections.abc.Mapping):
+            inputs = {key: self.transform(value) for key, value in inputs.items()}
+        elif isinstance(inputs, collections.abc.Sequence):
+            inputs = tuple(self.transform(input) for input in inputs)
         self.transform.wipeout_()
-        return input_dict
+        return inputs
 
 
 class Transform(nn.Module):
@@ -121,9 +124,9 @@ class Compose(nn.Module):
         super().__init__()
         self._transforms = transforms
 
-    def forward(self, *inputs: Any) -> Any:
+    def forward(self, inputs):
         for transform in self._transforms:
-            inputs = transform(*inputs)
+            inputs = transform(inputs)
         return inputs
 
     def set_reset_auto(self, mode=True):

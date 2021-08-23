@@ -21,13 +21,12 @@ sample_a = dispatch_transform(dict(image=image, bbox=bbox))
 torch.testing.assert_close(sample_a["image"], image_e)
 torch.testing.assert_close(sample_a["bbox"].convert("xyxy"), bbox_e)
 
-# FIXME: tuple dispatch is not yet supported
-# image_a, bbox_a = dispatch_transform(image, bbox)
-# torch.testing.assert_close(image_a, image_e)
-# torch.testing.assert_close(bbox_a.convert("xyxy"), bbox_e)
+image_a, bbox_a = dispatch_transform((image, bbox))
+torch.testing.assert_close(image_a, image_e)
+torch.testing.assert_close(bbox_a.convert("xyxy"), bbox_e)
 
-# FIXME: composed transforms are not yet supported
-# composed_transform = transforms.Compose(transform, transform)
-#
-# image_a, bbox_a = composed_transform(image)
-# torch.testing.assert_close(image_a, image)
+composed_transform = transforms.Compose(transform, transform)
+dispatch_transform = transforms.TransformDispatch(composed_transform)
+sample_a = dispatch_transform(dict(image=image, bbox=bbox))
+image_a = composed_transform(image)
+torch.testing.assert_close(image_a, image)
