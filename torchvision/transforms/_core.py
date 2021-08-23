@@ -9,7 +9,7 @@ from torch import nn
 
 from torchvision.features import BoundingBox, Feature, Image
 
-__all__ = ["Transform", "Compose", "query_sample"]
+__all__ = ["Transform", "Compose", "query_sample", "TransformDispatch"]
 
 T = TypeVar("T")
 
@@ -24,10 +24,10 @@ def query_sample(sample: Any, fn: Callable[[Any], Optional[T]]) -> Iterator[T]:
             yield result
 
 
-class TransformDispatch():
-    def __init__(self, transforms):
-        self.transforms = transforms
-        self.transforms.set_reset_auto(False)
+class TransformDispatch:
+    def __init__(self, transform):
+        self.transform = transform
+        self.transform.set_reset_auto(False)
 
     def __call__(self, input_dict):
         input_dict = {key: self.transform(value) for key, value in input_dict.items()}
@@ -50,7 +50,7 @@ class Transform(nn.Module):
 
     def set_reset_auto(self, mode=True):
         self.reset_auto = mode
-    
+
     def wipeout_(self):
         self.initialized = False
         self.saved_params = None
@@ -132,7 +132,7 @@ class Compose(nn.Module):
                 warn(f"transform of type {t} cannot be set to reset_auto={mode} as it is not a Transform instance")
             else:
                 t.set_reset_auto(mode)
-    
+
     def wipeout_(self):
         for t in self._transforms:
             if not isinstance(t, (Compose, Transform)):
