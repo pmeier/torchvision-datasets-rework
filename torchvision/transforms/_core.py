@@ -76,6 +76,18 @@ class Transform(nn.Module):
         feature_transform = cls._feature_transforms[feature_type]
         return feature_transform(input, **params)
 
+    def _apply_recursively(self, sample: Any, *, params: Dict[str, Any]) -> Any:
+        if isinstance(sample, collections.abc.Sequence):
+            return [self._apply_recursively(item, params=params) for item in sample]
+        elif isinstance(sample, collections.abc.Mapping):
+            return {name: self._apply_recursively(item, params=params) for name, item in sample.items()}
+        else:
+            feature_type = type(sample)
+            if not (feature_type is torch.Tensor or feature_type in self._feature_transforms):
+                return sample
+
+            return self.apply(sample, **params)
+
     def get_params(self, sample: Any) -> Dict[str, Any]:
         return dict()
 
@@ -83,20 +95,7 @@ class Transform(nn.Module):
         sample = inputs if len(inputs) > 1 else inputs[0]
         if params is None:
             params = self.get_params(sample)
-
-        def apply(sample: Any):
-            if isinstance(sample, collections.abc.Sequence):
-                return [apply(item) for item in sample]
-            elif isinstance(sample, collections.abc.Mapping):
-                return {name: apply(item) for name, item in sample.items()}
-            else:
-                feature_type = type(sample)
-                if not (feature_type is torch.Tensor or feature_type in self._feature_transforms):
-                    return sample
-
-                return self.apply(sample, **params)
-
-        return apply(sample)
+        return self._apply_recursively(sample, params=params)
 
 
 class Compose(nn.Module):
