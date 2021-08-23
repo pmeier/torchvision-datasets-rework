@@ -25,13 +25,13 @@ def query_sample(sample: Any, fn: Callable[[Any], Optional[T]]) -> Iterator[T]:
 
 
 class TransformDispatch():
-    def __init__(cls, transforms):
-        cls.transforms = transforms
-        cls.transforms.set_reset_auto(False)
+    def __init__(self, transforms):
+        self.transforms = transforms
+        self.transforms.set_reset_auto(False)
 
-    def __call__(cls, input_dict):
-        input_dict = {key: cls.transform(value) for key, value in input_dict.items()}
-        cls.transform.wipeout_()
+    def __call__(self, input_dict):
+        input_dict = {key: self.transform(value) for key, value in input_dict.items()}
+        self.transform.wipeout_()
         return input_dict
 
 
@@ -41,19 +41,19 @@ class Transform(nn.Module):
         for feature_type in (Image, BoundingBox)
     }
 
-    def __init_subclass__(cls, *, auto_register: bool = True):
-        cls.initialized = False
-        cls.reset_auto = True
-        cls._feature_transforms: Dict[Type[Feature], Callable] = {}
+    def __init_subclass__(self, *, auto_register: bool = True):
+        self.initialized = False
+        self.reset_auto = True
+        self._feature_transforms: Dict[Type[Feature], Callable] = {}
         if auto_register:
-            cls._auto_register()
+            self._auto_register()
 
-    def set_reset_auto(cls, mode=True):
-        cls.reset_auto = mode
+    def set_reset_auto(self, mode=True):
+        self.reset_auto = mode
     
-    def wipeout_(cls):
-        cls.initialized = False
-        cls.saved_params = None
+    def wipeout_(self):
+        self.initialized = False
+        self.saved_params = None
 
     @classmethod
     def _auto_register(cls) -> None:
@@ -99,42 +99,42 @@ class Transform(nn.Module):
         feature_transform = cls._feature_transforms[feature_type]
         return feature_transform(input, **params)
 
-    def get_params(cls, sample: Any) -> Dict[str, Any]:
+    def get_params(self, sample: Any) -> Dict[str, Any]:
         return dict()
 
-    def forward(cls, input: torch.Tensor) -> torch.Tensor:
-        if not cls.initialized:
-            cls.saved_params = cls.get_params(input)
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        if not self.initialized:
+            self.saved_params = self.get_params(input)
 
         feature_type = type(input)
-        if not (feature_type is torch.Tensor or feature_type in cls._feature_transforms):
+        if not (feature_type is torch.Tensor or feature_type in self._feature_transforms):
             return input
 
-        output = cls.apply(input, **cls.saved_params)
-        if cls.reset_auto:
-            cls.wipeout_()
+        output = self.apply(input, **self.saved_params)
+        if self.reset_auto:
+            self.wipeout_()
         return output
 
 
 class Compose(nn.Module):
-    def __init__(cls, *transforms: Transform) -> None:
+    def __init__(self, *transforms: Transform) -> None:
         super().__init__()
-        cls._transforms = transforms
+        self._transforms = transforms
 
-    def forward(cls, *inputs: Any) -> Any:
-        for transform in cls._transforms:
+    def forward(self, *inputs: Any) -> Any:
+        for transform in self._transforms:
             inputs = transform(*inputs)
         return inputs
 
-    def set_reset_auto(cls, mode=True):
-        for t in cls._transforms:
+    def set_reset_auto(self, mode=True):
+        for t in self._transforms:
             if not isinstance(t, (Compose, Transform)):
                 warn(f"transform of type {t} cannot be set to reset_auto={mode} as it is not a Transform instance")
             else:
                 t.set_reset_auto(mode)
     
-    def wipeout_(cls):
-        for t in cls._transforms:
+    def wipeout_(self):
+        for t in self._transforms:
             if not isinstance(t, (Compose, Transform)):
                 warn(f"transform of type {t} cannot be wiped out as it is not a Transform instance")
             else:
