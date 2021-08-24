@@ -52,12 +52,18 @@ class Transform(nn.Module):
     def register_feature_transform(cls, feature_type: Type[Feature], transform: Callable) -> None:
         cls._feature_transforms[feature_type] = transform
 
+    @classmethod
+    def is_supported(cls, feature_type: Union[torch.Tensor, Type[torch.Tensor]]) -> bool:
+        if not isinstance(feature_type, type):
+            feature_type = type(feature_type)
+        return feature_type is torch.Tensor or feature_type in cls._feature_transforms
+
     def get_params(self, input: torch.Tensor) -> Dict[str, Any]:
         return dict()
 
     def forward(self, input: torch.Tensor, *, params: Optional[Dict[str, Any]] = None) -> torch.Tensor:
         feature_type = type(input)
-        if not (feature_type is torch.Tensor or feature_type in self._feature_transforms):
+        if not self.is_supported(feature_type):
             raise TypeError(f"{type(self).__name__} is not able to handle inputs of type {feature_type}.")
 
         # TODO: if the other domain libraries adopt our approach, we need to make the default type variable.
@@ -74,20 +80,27 @@ class Compose(nn.Module):
         super().__init__()
         self.transforms = transforms
 
+    def is_supported(self, feature_type: Union[torch.Tensor, Type[torch.Tensor]]) -> bool:
+        return any(transform.is_supported(feature_type) for transform in self.transforms)
+
     def get_params(self, input: torch.Tensor) -> List[Dict[str, Any]]:
         return [transform.get_params(input) for transform in self.transforms]
 
     def forward(
         self, input: torch.Tensor, params: Optional[Union[Sequence[Dict[str, Any]], Dict[str, Any]]] = None
     ) -> Any:
+        if not self.is_supported(input):
+            raise TypeError(f"No transformation in this Composed() can handle inputs of type {type(input)}.")
+
         if not isinstance(params, collections.abc.Sequence):
             params = [params] * len(self.transforms)
         else:
             if len(params) != len(self.transforms):
-                raise ValueError()
+                raise ValueError("Number of params and transforms has to match.")
 
         for transform, params_ in zip(self.transforms, params):
-            input = transform(input, params=params_)
+            if transform.is_supported(input):
+                input = transform(input, params=params_)
         return input
 
 
@@ -100,8 +113,9 @@ def apply_to_sample(transform: Union[Transform, Compose]) -> Callable:
         else:
             return transform(sample, params=params)
 
-    def sample_transform(*inputs: Any, params: Optional[Dict[str, Any]] = None) -> Any:
+    def sample_transform(*inputs: Any, params: Optional[Union[Sequence[Dict[str, Any]], Dict[str, Any]]] = None) -> Any:
         sample = inputs if len(inputs) > 1 else inputs[0]
+        params = params or transform.get_params(sample)
         return apply_recursively(sample, params=params)
 
     return sample_transform
