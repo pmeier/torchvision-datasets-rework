@@ -1,26 +1,16 @@
 import collections.abc
 import inspect
 import re
-from typing import Any, Callable, Dict, Iterator, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Type, TypeVar, Union
 
 import torch
 from torch import nn
 
 from torchvision.features import BoundingBox, Feature, Image
 
-__all__ = ["Transform", "Compose", "query_sample"]
+__all__ = ["Transform", "Compose", "apply_to_sample"]
 
 T = TypeVar("T")
-
-
-def query_sample(sample: Any, fn: Callable[[Any], Optional[T]]) -> Iterator[T]:
-    if isinstance(sample, (collections.abc.Sequence, collections.abc.Mapping)):
-        for item in sample.values() if isinstance(sample, collections.abc.Mapping) else sample:
-            yield from query_sample(item, fn)
-    else:
-        result = fn(sample)
-        if result is not None:
-            yield result
 
 
 class Transform(nn.Module):
@@ -62,48 +52,56 @@ class Transform(nn.Module):
     def register_feature_transform(cls, feature_type: Type[Feature], transform: Callable) -> None:
         cls._feature_transforms[feature_type] = transform
 
-    @classmethod
-    def apply(cls, input: torch.Tensor, **params: Any) -> torch.Tensor:
+    def get_params(self, input: torch.Tensor) -> Dict[str, Any]:
+        return dict()
+
+    def forward(self, input: torch.Tensor, *, params: Optional[Dict[str, Any]] = None) -> torch.Tensor:
         feature_type = type(input)
-        if not (feature_type is torch.Tensor or feature_type in cls._feature_transforms):
-            raise TypeError(f"{cls}() is not able to handle inputs of type {feature_type}.")
+        if not (feature_type is torch.Tensor or feature_type in self._feature_transforms):
+            raise TypeError(f"{type(self).__name__} is not able to handle inputs of type {feature_type}.")
 
         # TODO: if the other domain libraries adopt our approach, we need to make the default type variable.
         if feature_type is torch.Tensor:
             feature_type = Image
             input = Image.from_tensor(input)
 
-        feature_transform = cls._feature_transforms[feature_type]
-        return feature_transform(input, **params)
-
-    def _apply_recursively(self, sample: Any, *, params: Dict[str, Any]) -> Any:
-        if isinstance(sample, collections.abc.Sequence):
-            return [self._apply_recursively(item, params=params) for item in sample]
-        elif isinstance(sample, collections.abc.Mapping):
-            return {name: self._apply_recursively(item, params=params) for name, item in sample.items()}
-        else:
-            feature_type = type(sample)
-            if not (feature_type is torch.Tensor or feature_type in self._feature_transforms):
-                return sample
-
-            return self.apply(sample, **params)
-
-    def get_params(self, sample: Any) -> Dict[str, Any]:
-        return dict()
-
-    def forward(self, *inputs: Any, params: Optional[Dict[str, Any]] = None) -> Any:
-        sample = inputs if len(inputs) > 1 else inputs[0]
-        if params is None:
-            params = self.get_params(sample)
-        return self._apply_recursively(sample, params=params)
+        feature_transform = self._feature_transforms[feature_type]
+        return feature_transform(input, **params or self.get_params(input))
 
 
 class Compose(nn.Module):
     def __init__(self, *transforms: Transform) -> None:
         super().__init__()
-        self._transforms = transforms
+        self.transforms = transforms
 
-    def forward(self, *inputs: Any) -> Any:
-        for transform in self._transforms:
-            inputs = transform(*inputs)
-        return inputs
+    def get_params(self, input: torch.Tensor) -> List[Dict[str, Any]]:
+        return [transform.get_params(input) for transform in self.transforms]
+
+    def forward(
+        self, input: torch.Tensor, params: Optional[Union[Sequence[Dict[str, Any]], Dict[str, Any]]] = None
+    ) -> Any:
+        if not isinstance(params, collections.abc.Sequence):
+            params = [params] * len(self.transforms)
+        else:
+            if len(params) != len(self.transforms):
+                raise ValueError()
+
+        for transform, params_ in zip(self.transforms, params):
+            input = transform(input, params=params_)
+        return input
+
+
+def apply_to_sample(transform: Union[Transform, Compose]) -> Callable:
+    def apply_recursively(sample: Any, *, params: Dict[str, Any]) -> Any:
+        if isinstance(sample, collections.abc.Sequence):
+            return [apply_recursively(item, params=params) for item in sample]
+        elif isinstance(sample, collections.abc.Mapping):
+            return {name: apply_recursively(item, params=params) for name, item in sample.items()}
+        else:
+            return transform(sample, params=params)
+
+    def sample_transform(*inputs: Any, params: Optional[Dict[str, Any]] = None) -> Any:
+        sample = inputs if len(inputs) > 1 else inputs[0]
+        return apply_recursively(sample, params=params)
+
+    return sample_transform

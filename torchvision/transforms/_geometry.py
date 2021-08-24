@@ -1,10 +1,10 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
 
 from torchvision.features import BoundingBox, Image
 
-from ._core import Transform, query_sample
+from ._core import Transform
 
 __all__ = ["HorizontalFlip", "RandomRotate", "RandomErase"]
 
@@ -39,20 +39,8 @@ class RandomRotate(Transform):
 
 
 class RandomErase(Transform):
-    @staticmethod
-    def _find_image_size(sample: Any) -> Optional[Tuple[int, int]]:
-        if not isinstance(sample, torch.Tensor):
-            return None
-        elif type(sample) is torch.Tensor:
-            return sample.shape[-2:]
-        elif isinstance(sample, (Image, BoundingBox)):
-            return sample.image_size
-        else:
-            return None
-
-    def get_params(self, sample: Any) -> Dict[str, Any]:
-        image_size = next(query_sample(sample, self._find_image_size))
-        return dict(erase_size=tuple(size // 2 for size in image_size))
+    def get_params(self, input: Image) -> Dict[str, Any]:
+        return dict(erase_size=tuple(size // 2 for size in input.image_size))
 
     @staticmethod
     def image(input: Image, *, erase_size: Tuple[int, int]) -> Image:
