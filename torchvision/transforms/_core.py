@@ -53,9 +53,8 @@ class Transform(nn.Module):
         cls._feature_transforms[feature_type] = transform
 
     @classmethod
-    def is_supported(cls, feature_type: Union[torch.Tensor, Type[torch.Tensor]]) -> bool:
-        if not isinstance(feature_type, type):
-            feature_type = type(feature_type)
+    def is_supported(cls, obj: Any) -> bool:
+        feature_type = obj if isinstance(obj, type) else type(obj)
         return feature_type is torch.Tensor or feature_type in cls._feature_transforms
 
     def get_params(self, input: torch.Tensor) -> Dict[str, Any]:
@@ -80,8 +79,8 @@ class Compose(nn.Module):
         super().__init__()
         self.transforms = transforms
 
-    def is_supported(self, feature_type: Union[torch.Tensor, Type[torch.Tensor]]) -> bool:
-        return any(transform.is_supported(feature_type) for transform in self.transforms)
+    def is_supported(self, obj: Any) -> bool:
+        return any(transform.is_supported(obj) for transform in self.transforms)
 
     def get_params(self, input: torch.Tensor) -> List[Dict[str, Any]]:
         return [transform.get_params(input) for transform in self.transforms]
@@ -111,6 +110,9 @@ def apply_to_sample(transform: Union[Transform, Compose]) -> Callable:
         elif isinstance(sample, collections.abc.Mapping):
             return {name: apply_recursively(item, params=params) for name, item in sample.items()}
         else:
+            if not transform.is_supported(sample):
+                return sample
+
             return transform(sample, params=params)
 
     def sample_transform(*inputs: Any, params: Optional[Union[Sequence[Dict[str, Any]], Dict[str, Any]]] = None) -> Any:
