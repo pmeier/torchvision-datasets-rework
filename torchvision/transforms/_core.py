@@ -24,7 +24,7 @@ def query_sample(sample: Any, fn: Callable[[Any], Optional[T]]) -> Iterator[T]:
             yield result
 
 
-class TransformDispatch:
+class JointTransform:
     def __init__(self, transform):
         self.transform = transform
         self.transform.set_reset_auto(False)
