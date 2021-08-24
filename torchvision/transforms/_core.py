@@ -9,7 +9,7 @@ from torch import nn
 
 from torchvision.features import BoundingBox, Feature, Image
 
-__all__ = ["Transform", "Compose", "query_sample", "TransformDispatch"]
+__all__ = ["Transform", "Compose", "query_sample", "JointTransform"]
 
 T = TypeVar("T")
 

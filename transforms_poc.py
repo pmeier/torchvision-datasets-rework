@@ -15,7 +15,7 @@ torch.testing.assert_close(transform(image), image_e)
 
 torch.testing.assert_close(transform(bbox).convert("xyxy"), bbox_e)
 
-dispatch_transform = transforms.TransformDispatch(transform)
+dispatch_transform = transforms.JointTransform(transform)
 
 sample_a = dispatch_transform(dict(image=image, bbox=bbox))
 torch.testing.assert_close(sample_a["image"], image_e)
@@ -26,7 +26,7 @@ torch.testing.assert_close(image_a, image_e)
 torch.testing.assert_close(bbox_a.convert("xyxy"), bbox_e)
 
 composed_transform = transforms.Compose(transform, transform)
-dispatch_transform = transforms.TransformDispatch(composed_transform)
+dispatch_transform = transforms.JointTransform(composed_transform)
 sample_a = dispatch_transform(dict(image=image, bbox=bbox))
 image_a = composed_transform(image)
 torch.testing.assert_close(image_a, image)
