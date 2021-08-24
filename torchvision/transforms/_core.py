@@ -9,7 +9,7 @@ from torch import nn
 
 from torchvision.features import BoundingBox, Feature, Image
 
-__all__ = ["Transform", "Compose", "query_sample", "JointTransform"]
+__all__ = ["Transform", "Compose", "query_sample", "TransformDispatch"]
 
 T = TypeVar("T")
 
@@ -29,13 +29,18 @@ class JointTransform:
         self.transform = transform
         self.transform.set_reset_auto(False)
 
-    def __call__(self, inputs):
+    def _recurse(self, inputs):
         if isinstance(inputs, collections.abc.Mapping):
-            inputs = {key: self.transform(value) for key, value in inputs.items()}
+            return {key: self._recurse(value) for key, value in inputs.items()}
         elif isinstance(inputs, collections.abc.Sequence):
-            inputs = tuple(self.transform(input) for input in inputs)
+            return [self._recurse(input) for input in inputs]
+        else:
+            return self.transform(inputs)
+
+    def __call__(self, inputs):
+        outputs = self._recurse(inputs)
         self.transform.wipeout_()
-        return inputs
+        return outputs
 
 
 class Transform(nn.Module):
