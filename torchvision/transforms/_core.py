@@ -1,4 +1,5 @@
 import collections.abc
+import difflib
 import inspect
 import re
 from typing import Any, Callable, Dict, Iterator, Optional, Type, TypeVar
@@ -29,37 +30,65 @@ class Transform(nn.Module):
         for feature_type in (Image, BoundingBox)
     }
 
-    def __init_subclass__(cls, *, auto_register: bool = True):
+    def __init_subclass__(cls, *, auto_register: bool = True, verbose: bool = False):
         cls._feature_transforms: Dict[Type[Feature], Callable] = {}
         if auto_register:
-            cls._auto_register()
+            cls._auto_register(verbose=verbose)
+
+    @staticmethod
+    def _has_allowed_signature(feature_transform: Callable) -> bool:
+        parameters = tuple(inspect.signature(feature_transform).parameters.values())
+        if not parameters:
+            return False
+        elif len(parameters) == 1:
+            return parameters[0].kind != inspect.Parameter.KEYWORD_ONLY
+        else:
+            return parameters[1].kind != inspect.Parameter.POSITIONAL_ONLY
 
     @classmethod
-    def _auto_register(cls) -> None:
+    def _auto_register(cls, *, verbose: bool = False) -> None:
         for name, value in inspect.getmembers(cls):
-            # attribute is private
-            if name.startswith("_"):
+            # check if attribute is a static method and was defined in the subclass
+            # TODO: this needs to be revisited to allow subclassing of custom transforms
+            if not (name in cls.__dict__ and inspect.isfunction(value)):
                 continue
 
-            # attribute name does not match any known feature
+            not_registered_prefix = f"{cls.__name__}.{name}() was not registered as feature transform, because"
+
+            if not cls._has_allowed_signature(value):
+                if verbose:
+                    print(f"{not_registered_prefix} it cannot be invoked with {name}(input, **params).")
+                continue
+
+            if name.startswith("_"):
+                if verbose:
+                    print(f"{not_registered_prefix} it is private.")
+                continue
+
             try:
                 feature_type = cls._KNOWN_FEATURE_TYPES[name]
             except KeyError:
-                continue
-
-            # attribute is not a static method
-            if not inspect.isfunction(value):
-                continue
-            argspec = inspect.getfullargspec(value)
-
-            # transform takes none or more than one than one positional arguments
-            if len(argspec.args) != 1:
+                if verbose:
+                    msg = f"{not_registered_prefix} its name doesn't match any known feature type."
+                    suggestions = difflib.get_close_matches(name, cls._KNOWN_FEATURE_TYPES.keys(), n=1)
+                    if suggestions:
+                        msg = (
+                            f"{msg} Did you mean to name it '{suggestions[0]}' "
+                            f"to be registered for type '{cls._KNOWN_FEATURE_TYPES[suggestions[0]].__name__}'?"
+                        )
+                    print(msg)
                 continue
 
             cls.register_feature_transform(feature_type, value)
+            if verbose:
+                print(
+                    f"{cls.__name__}.{name}() was registered as feature transform for type '{feature_type.__name__}'."
+                )
 
     @classmethod
     def register_feature_transform(cls, feature_type: Type[Feature], transform: Callable) -> None:
+        if not cls._has_allowed_signature(transform):
+            raise TypeError("Transform cannot be invoked with trasnform(input, **params)")
         cls._feature_transforms[feature_type] = transform
 
     @classmethod
