@@ -2,26 +2,14 @@ import collections.abc
 import difflib
 import inspect
 import re
-from typing import Any, Callable, Dict, Iterator, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, Optional, Type
 
 import torch
 from torch import nn
 
 from torchvision.features import BoundingBox, Feature, Image
 
-__all__ = ["Transform", "Compose", "query_sample"]
-
-T = TypeVar("T")
-
-
-def query_sample(sample: Any, fn: Callable[[Any], Optional[T]]) -> Iterator[T]:
-    if isinstance(sample, (collections.abc.Sequence, collections.abc.Mapping)):
-        for item in sample.values() if isinstance(sample, collections.abc.Mapping) else sample:
-            yield from query_sample(item, fn)
-    else:
-        result = fn(sample)
-        if result is not None:
-            yield result
+__all__ = ["Transform", "Compose"]
 
 
 class Transform(nn.Module):

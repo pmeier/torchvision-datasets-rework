@@ -135,11 +135,11 @@ Since the dispatch for the complete sample happens from a single point in the `f
            return dict(degrees=self._dist.sample().item())
    
        @staticmethod
-       def image(image: Image, *, degrees: float) -> Image:
+       def image(image: Image, *, degrees: torch.Tensor) -> Image:
            return image
    
        @staticmethod
-       def bounding_box(bounding_box: BoundingBox, *, degrees: float) -> BoundingBox:
+       def bounding_box(bounding_box: BoundingBox, *, degrees: torch.Tensor) -> BoundingBox:
            return bounding_box
    ```
 

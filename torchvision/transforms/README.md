@@ -76,7 +76,7 @@ class MyTransform(transforms.Transform):
         ...
 ```
 
-Finally, the `get_params` method gets passed the complete `sample` in case the sampling depends on one or more features at runtime. Since `sample` can possibly be a nested container of features, you can use `transforms.query_sample` to extract the information you want without worrying about the structure.
+Finally, the `get_params` method gets passed the complete `sample` in case the sampling depends on one or more features at runtime. Since `sample` can possibly be a nested container of features, you can use the `torchvision.transforms.query` to extract the information you want without worrying about the structure.
 
 
 # FAQ
