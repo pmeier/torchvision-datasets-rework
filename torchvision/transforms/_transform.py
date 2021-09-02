@@ -9,13 +9,20 @@ from torch import nn
 
 from torchvision.features import BoundingBox, Feature, Image
 
-__all__ = ["Transform", "Compose", "Lambda"]
+__all__ = ["Transform", "Lambda"]
 
 
-class Transform(nn.Module):
-    _KNOWN_FEATURE_TYPES = {
+class _TransformBase(nn.Module):
+    _BUILTIN_FEATURE_TYPES = (
+        BoundingBox,
+        Image,
+    )
+
+
+class Transform(_TransformBase):
+    _FEATURE_NAME_MAP = {
         "_".join([part.lower() for part in re.findall("[A-Z][^A-Z]*", feature_type.__name__)]): feature_type
-        for feature_type in (Image, BoundingBox)
+        for feature_type in _TransformBase._BUILTIN_FEATURE_TYPES
     }
 
     def __init_subclass__(cls, *, auto_register: bool = True, verbose: bool = False):
@@ -60,15 +67,15 @@ class Transform(nn.Module):
                 continue
 
             try:
-                feature_type = cls._KNOWN_FEATURE_TYPES[name]
+                feature_type = cls._FEATURE_NAME_MAP[name]
             except KeyError:
                 if verbose:
                     msg = f"{not_registered_prefix} its name doesn't match any known feature type."
-                    suggestions = difflib.get_close_matches(name, cls._KNOWN_FEATURE_TYPES.keys(), n=1)
+                    suggestions = difflib.get_close_matches(name, cls._FEATURE_NAME_MAP.keys(), n=1)
                     if suggestions:
                         msg = (
                             f"{msg} Did you mean to name it '{suggestions[0]}' "
-                            f"to be registered for type '{cls._KNOWN_FEATURE_TYPES[suggestions[0]].__name__}'?"
+                            f"to be registered for type '{cls._FEATURE_NAME_MAP[suggestions[0]].__name__}'?"
                         )
                     print(msg)
                 continue
@@ -100,14 +107,15 @@ class Transform(nn.Module):
         return transform_cls()
 
     @classmethod
-    def is_supported(cls, obj: Any) -> bool:
+    def supports(cls, obj: Any) -> bool:
+        # TODO: should this handle containers?
         feature_type = obj if isinstance(obj, type) else type(obj)
         return feature_type is torch.Tensor or feature_type in cls._feature_transforms
 
     @classmethod
     def apply(cls, input: torch.Tensor, **params: Any) -> torch.Tensor:
         feature_type = type(input)
-        if not cls.is_supported(feature_type):
+        if not cls.supports(feature_type):
             raise TypeError(f"{cls.__name__}() is not able to handle inputs of type {feature_type}.")
 
         # TODO: if the other domain libraries adopt our approach, we need to make the default type variable.
@@ -121,33 +129,36 @@ class Transform(nn.Module):
     @classmethod
     def wraps(cls, wrapped_transform_cls: Type["Transform"]):
         def cls_wrapper(transform_cls):
-            transform_cls.is_supported = wrapped_transform_cls.is_supported
+            transform_cls.supports = wrapped_transform_cls.supports
             transform_cls.apply = wrapped_transform_cls.apply
 
             return transform_cls
 
         return cls_wrapper
 
-    def _apply_recursively(self, sample: Any, *, params: Dict[str, Any]) -> Any:
+    def _apply_recursively(self, sample: Any, *, params: Dict[str, Any], strict: bool) -> Any:
         if isinstance(sample, collections.abc.Sequence):
-            return [self._apply_recursively(item, params=params) for item in sample]
+            return [self._apply_recursively(item, params=params, strict=strict) for item in sample]
         elif isinstance(sample, collections.abc.Mapping):
-            return {name: self._apply_recursively(item, params=params) for name, item in sample.items()}
+            return {name: self._apply_recursively(item, params=params, strict=strict) for name, item in sample.items()}
         else:
             feature_type = type(sample)
-            if not self.is_supported(feature_type):
-                return sample
+            if not self.supports(feature_type):
+                if not strict:
+                    return sample
+
+                raise TypeError(f"{type(self).__name__}() is not able to handle inputs of type {feature_type}.")
 
             return self.apply(sample, **params)
 
     def get_params(self, sample: Any) -> Dict[str, Any]:
         return dict()
 
-    def forward(self, *inputs: Any, params: Optional[Dict[str, Any]] = None) -> Any:
+    def forward(self, *inputs: Any, params: Optional[Dict[str, Any]] = None, strict: bool = True) -> Any:
         sample = inputs if len(inputs) > 1 else inputs[0]
         if params is None:
             params = self.get_params(sample)
-        return self._apply_recursively(sample, params=params)
+        return self._apply_recursively(sample, params=params, strict=strict)
 
 
 # This is only for BC.
@@ -157,14 +168,3 @@ class Lambda(Transform):
 
     def __init__(self, lambd: Callable):
         super().__init__()
-
-
-class Compose(nn.Module):
-    def __init__(self, *transforms: Transform) -> None:
-        super().__init__()
-        self._transforms = transforms
-
-    def forward(self, *inputs: Any) -> Any:
-        for transform in self._transforms:
-            inputs = transform(*inputs)
-        return inputs

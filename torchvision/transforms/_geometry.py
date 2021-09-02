@@ -5,7 +5,7 @@ import torch
 from torchvision.features import BoundingBox, Image
 
 from . import query
-from ._core import Transform
+from ._transform import Transform
 
 __all__ = ["HorizontalFlip", "RandomRotate", "RandomErase"]
 

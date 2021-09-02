@@ -5,7 +5,7 @@ import torch
 from torchvision.features import Image
 
 from . import query
-from ._core import Transform
+from ._transform import Transform
 
 __all__ = ["MixUp"]
 

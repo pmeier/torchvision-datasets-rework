@@ -28,6 +28,7 @@ sections= ["FUTURE", "STDLIB", "THIRDPARTY", "PYTORCH", "FIRSTPARTY", "LOCALFOLD
 
 skip = [
   "torchvision/datasets/__init__.py",
+  "torchvision/transforms/__init__.py",
 ]
 
 [tool.black]
@@ -36,9 +37,3 @@ skip = [
 
 line-length = 120
 target-version = ["py36"]
-exclude = '''
-/(
-    \.git
-  | __pycache__
-)/
-'''
