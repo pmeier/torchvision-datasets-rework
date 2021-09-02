@@ -22,13 +22,13 @@ class HorizontalFlip(Transform):
         return BoundingBox.from_parts(x, y, w, h, like=input, format="xywh")
 
 
-class RandomRotate(Transform):
-    def __init__(self, low: float, high: float) -> None:
+class Rotate(Transform):
+    def __init__(self, degrees: float) -> None:
         super().__init__()
-        self._dist = torch.distributions.Uniform(low, high)
+        self.degrees = degrees
 
-    def get_params(self, sample: Any = None) -> Dict[str, Any]:
-        return dict(degrees=self._dist.sample().item())
+    def get_params(self, sample: Any) -> Dict[str, Any]:
+        return dict(degrees=self.degrees)
 
     @staticmethod
     def image(input: Image, *, degrees: torch.Tensor) -> Image:
@@ -37,6 +37,16 @@ class RandomRotate(Transform):
     @staticmethod
     def bounding_box(input: BoundingBox, *, degrees: torch.Tensor) -> BoundingBox:
         return input
+
+
+@Transform.wraps(Rotate)
+class RandomRotate(Transform):
+    def __init__(self, low: float, high: float) -> None:
+        super().__init__()
+        self._dist = torch.distributions.Uniform(low, high)
+
+    def get_params(self, sample: Any):
+        return dict(degrees=self._dist.sample().item())
 
 
 class RandomErase(Transform):
