@@ -7,7 +7,7 @@ from torchvision.features import BoundingBox, Image
 from . import query
 from ._transform import Transform
 
-__all__ = ["HorizontalFlip", "RandomRotate", "RandomErase"]
+__all__ = ["HorizontalFlip", "Rotate", "RandomRotate", "RandomErase"]
 
 
 class HorizontalFlip(Transform):
@@ -39,7 +39,7 @@ class Rotate(Transform):
         return input
 
 
-@Transform.wraps(Rotate)
+@Rotate.is_used_by
 class RandomRotate(Transform):
     def __init__(self, low: float, high: float) -> None:
         super().__init__()

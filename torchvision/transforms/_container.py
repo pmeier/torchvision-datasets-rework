@@ -49,7 +49,7 @@ class RandomApply(_WrapperTransform):
     def forward(self, *inputs: Any, strict: bool = False) -> Any:
         sample = inputs if len(inputs) > 1 else inputs[0]
         if torch.rand() < self._p:
-            # TODO: Should we check here is sample is supported if check=True?
+            # TODO: Should we check here is sample is supported if strict=True?
             return sample
 
         return self._transform(sample, strict=strict)
