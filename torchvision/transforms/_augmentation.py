@@ -2,9 +2,9 @@ from typing import Any, Dict
 
 import torch
 
+from torchvision.datasets.utils import Query
 from torchvision.features import Image
 
-from . import query
 from ._transform import Transform
 
 __all__ = ["MixUp"]
@@ -17,11 +17,8 @@ class MixUp(Transform):
         self._dist = torch.distributions.Beta(alpha, alpha)
 
     def get_params(self, sample: Any) -> Dict[str, Any]:
-        batch_size = next(query.batch_size(sample))
-        perm = torch.randperm(batch_size)
-
+        perm = torch.randperm(Query(sample).batch_size())
         lam = self._dist.sample()
-
         return dict(perm=perm, lam=lam)
 
     @staticmethod

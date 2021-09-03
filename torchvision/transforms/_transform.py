@@ -389,7 +389,7 @@ class Transform(_TransformBase):
         .. note::
 
             Since ``sample`` might be a nested container, it is recommended to use the
-            :mod:`torchvision.transforms.query` module if you need to extract information from it.
+            :class:`torchvision.datasets.utils.Query` class if you need to extract information from it.
 
         Args:
             sample: Current sample.

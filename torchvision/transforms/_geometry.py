@@ -2,9 +2,9 @@ from typing import Any, Dict, Tuple
 
 import torch
 
+from torchvision.datasets.utils import Query
 from torchvision.features import BoundingBox, Image
 
-from . import query
 from ._transform import Transform
 
 __all__ = ["HorizontalFlip", "Rotate", "RandomRotate", "RandomErase"]
@@ -51,7 +51,7 @@ class RandomRotate(Transform):
 
 class RandomErase(Transform):
     def get_params(self, sample: Any) -> Dict[str, Any]:
-        image_size = next(query.image_size(sample))
+        image_size = Query(sample).image_size()
         return dict(erase_size=tuple(size // 2 for size in image_size))
 
     @staticmethod
