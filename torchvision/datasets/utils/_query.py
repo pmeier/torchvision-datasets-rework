@@ -26,6 +26,9 @@ class Query:
 
     def query(self, fn: Callable[[Any], Optional[T]], *, unique: bool = True) -> Union[T, Set[T]]:
         results = set(self._query_recursively(self.sample, fn))
+        if not results:
+            raise RuntimeError("Query turned up empty.")
+
         if not unique:
             return results
 
@@ -49,8 +52,10 @@ class Query:
 
     def batch_size(self) -> Optional[int]:
         def fn(sample: Any) -> Optional[int]:
-            if isinstance(sample, torch.Tensor):
-                return sample.shape[0]
+            if not isinstance(sample, torch.Tensor):
+                return None
+            elif isinstance(sample, Image):
+                return sample.batch_size
             else:
                 return None
 
