@@ -4,7 +4,7 @@ import torch
 
 from torchvision.features import Image, Segmentation
 
-image = Image(torch.rand(3, 520, 520))
+image = Image(torch.rand(3, 480, 640))
 seg = Segmentation(torch.randint(0, 256, size=image.shape, dtype=torch.uint8))
 sample = image, seg
 

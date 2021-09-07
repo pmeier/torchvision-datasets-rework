@@ -56,15 +56,17 @@ class Transform(_TransformBase):
     If the name of a static method in camel-case matches the name of a :class:`Feature`, the feature transform is
     auto-registered. Supported pairs are:
 
-    +----------------+---------------+
-    | method name    | `Feature`     |
-    +================+===============+
-    | `image`        | `Image`       |
-    +----------------+---------------+
-    | `bounding_box` | `BoundingBox` |
-    +----------------+---------------+
+    +----------------+----------------+
+    | method name    | `Feature`      |
+    +================+================+
+    | `image`        | `Image`        |
+    +----------------+----------------+
+    | `bounding_box` | `BoundingBox`  |
+    +----------------+----------------+
+    | `segmentation` | `Segmentation` |
+    +----------------+----------------+
 
-    If you don't want to stick to this scheme, you can disable the auto-registration and perform it manually.
+    If you don't want to stick to this scheme, you can disable the auto-registration and perform it manually:
 
     .. code-block::
 
@@ -123,8 +125,15 @@ class Transform(_TransformBase):
             def image(input, *, degrees):
                 ...
 
-    The :meth:`Transform.get_params` method gets passed the complete ``sample`` in case the sampling depends
-    on one or more features at runtime.
+    In case the sampling depends on one or more features at runtime, the complete ``sample`` gets passed to the
+    :meth:`Transform.get_params` method. Derivative transforms that only changes the parameter sampling, but the
+    feature transformations are identical, can simply wrap the transform they dispatch to:
+
+    .. code-block::
+
+        class RandomRotate(Transform, wraps=Rotate):
+            def get_params(self, sample):
+                return dict(degrees=float(torch.rand(())) * 30.0)
 
     To transform a sample, you simply call an instance of the transform with it:
 
@@ -152,8 +161,12 @@ class Transform(_TransformBase):
         for feature_type in _TransformBase._BUILTIN_FEATURE_TYPES
     }
 
-    def __init_subclass__(cls, *, auto_register: bool = True, verbose: bool = False):
-        cls._feature_transforms: Dict[Type[features.Feature], Callable] = {}
+    def __init_subclass__(
+        cls, *, wraps: Optional[Type["Transform"]] = None, auto_register: bool = True, verbose: bool = False
+    ):
+        cls._feature_transforms: Dict[Type[features.Feature], Callable] = (
+            {} if wraps is None else wraps._feature_transforms.copy()
+        )
         if auto_register:
             cls._auto_register(verbose=verbose)
 
@@ -326,34 +339,6 @@ class Transform(_TransformBase):
         feature_transform = cls._feature_transforms[feature_type]
         return feature_transform(input, **params)
 
-    @classmethod
-    def is_used_by(cls, transform_cls: Type["Transform"]):
-        """Decorates a :class:`Transform` to reuse all feature transforms.
-
-        This is for example useful if a derivative transform only changes the parameter sampling, but the feature
-        transformations are identical:
-
-        .. code-block::
-
-            class Rotate(Transform):
-                def get_params(sample):
-                    return dict(degrees=30.0)
-
-                def image(input, *, degrees):
-                    ...
-
-                def bounding_box(input, *, degrees):
-                    ...
-
-
-            @Rotate.is_used_by
-            class RandomRotate(Transform):
-                def get_params(sample):
-                    return dict(degrees=torch.rand() * 30.0)
-        """
-        transform_cls._feature_transforms = cls._feature_transforms.copy()
-        return transform_cls
-
     def _apply_recursively(
         self, sample: Any, *, params: Union[Dict[str, Any], Dict[Type[features.Feature], Dict[str, Any]]], strict: bool
     ) -> Any:
@@ -382,7 +367,7 @@ class Transform(_TransformBase):
 
                 raise TypeError(f"{type(self).__name__}() is not able to handle inputs of type {feature_type}.")
 
-            if all(isinstance(key, type) and issubclass(key, features.Feature) for key in params.keys()):
+            if params and all(isinstance(key, type) and issubclass(key, features.Feature) for key in params.keys()):
                 params = params[feature_type]
             return self.apply(sample, **params)
 

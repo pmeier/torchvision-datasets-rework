@@ -64,8 +64,7 @@ class Resize(Transform):
         return extra_repr
 
 
-@Resize.is_used_by
-class RandomResize(Transform):
+class RandomResize(Transform, wraps=Resize):
     def __init__(self, min_size: Union[int, Tuple[int, int]], max_size: Optional[Union[int, Tuple[int, int]]]) -> None:
         super().__init__()
         self.min_size = (min_size, min_size) if isinstance(min_size, int) else min_size
@@ -101,8 +100,7 @@ class Crop(Transform):
         return Segmentation(Crop.image(input, crop_box=crop_box))
 
 
-@Crop.is_used_by
-class CenterCrop(Transform):
+class CenterCrop(Transform, wraps=Crop):
     def __init__(self, crop_size: Union[int, Tuple[int, int]]) -> None:
         super().__init__()
         self.crop_size = (crop_size, crop_size) if isinstance(crop_size, int) else crop_size
@@ -120,8 +118,7 @@ class CenterCrop(Transform):
         return f"crop_size={self.crop_size}"
 
 
-@Crop.is_used_by
-class RandomCrop(Transform):
+class RandomCrop(Transform, wraps=Crop):
     def __init__(self, crop_size: Union[int, Tuple[int, int]]) -> None:
         super().__init__()
         self.crop_size = (crop_size, crop_size) if isinstance(crop_size, int) else crop_size
