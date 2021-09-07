@@ -346,7 +346,7 @@ class Transform(_TransformBase):
                     ...
 
 
-            @Rotate.is_wrapped_by
+            @Rotate.is_used_by
             class RandomRotate(Transform):
                 def get_params(sample):
                     return dict(degrees=torch.rand() * 30.0)
@@ -354,7 +354,9 @@ class Transform(_TransformBase):
         transform_cls._feature_transforms = cls._feature_transforms.copy()
         return transform_cls
 
-    def _apply_recursively(self, sample: Any, *, params: Dict[str, Any], strict: bool) -> Any:
+    def _apply_recursively(
+        self, sample: Any, *, params: Union[Dict[str, Any], Dict[Type[features.Feature], Dict[str, Any]]], strict: bool
+    ) -> Any:
         """Recurses through a sample and invokes :meth:`Transform.apply` on non-container elements.
 
         If an element is not supported by the transform, it is returned untransformed.
@@ -367,7 +369,6 @@ class Transform(_TransformBase):
 
         Raises:
             TypeError: If ``strict=True`` and a non-container element of the ``sample`` is not supported.
-
         """
         if isinstance(sample, collections.abc.Sequence):
             return [self._apply_recursively(item, params=params, strict=strict) for item in sample]
@@ -381,9 +382,11 @@ class Transform(_TransformBase):
 
                 raise TypeError(f"{type(self).__name__}() is not able to handle inputs of type {feature_type}.")
 
+            if all(isinstance(key, type) and issubclass(key, features.Feature) for key in params.keys()):
+                params = params[feature_type]
             return self.apply(sample, **params)
 
-    def get_params(self, sample: Any) -> Dict[str, Any]:
+    def get_params(self, sample: Any) -> Union[Dict[str, Any], Dict[Type[features.Feature], Dict[str, Any]]]:
         """Returns the parameter dictionary used to transform the current sample.
 
         .. note::
@@ -399,7 +402,12 @@ class Transform(_TransformBase):
         """
         return dict()
 
-    def forward(self, *inputs: Any, params: Optional[Dict[str, Any]] = None, strict: bool = True) -> Any:
+    def forward(
+        self,
+        *inputs: Any,
+        params: Optional[Union[Dict[str, Any], Dict[Type[features.Feature], Dict[str, Any]]]] = None,
+        strict: bool = True,
+    ) -> Any:
         if not self._feature_transforms:
             raise RuntimeError(f"{type(self).__name__}() has no registered feature transform.")
 

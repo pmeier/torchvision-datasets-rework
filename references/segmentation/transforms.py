@@ -16,14 +16,13 @@ def get_transform(
     if train:
         min_size = base_size // 2
         max_size = base_size * 2
-        transforms = [
-            T.RandomResize(min_size, max_size),
-        ]
+        transforms = [T.RandomResize(min_size, max_size)]
 
         if horizontal_flip_probability > 0:
             transforms.append(T.RandomApply(T.HorizontalFlip(), p=horizontal_flip_probability))
 
         transforms.append(T.RandomCrop(crop_size))
+
         augmentation = T.Compose(*transforms)
     else:
         augmentation = T.Resize(base_size)

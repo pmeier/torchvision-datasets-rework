@@ -1,10 +1,10 @@
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Type, Union
 
 import torch
 from torch.nn.functional import interpolate
 
 from torchvision.datasets.utils import Query
-from torchvision.features import BoundingBox, Image, Segmentation
+from torchvision.features import BoundingBox, Feature, Image, Segmentation
 from torchvision.transforms import Transform
 from torchvision.transforms.utils import ImageRequirement
 
@@ -40,12 +40,11 @@ class Resize(Transform):
         self.size = (size, size) if isinstance(size, int) else size
         self.interpolation_mode = interpolation_mode
 
-    def get_params(self, sample: Any) -> Dict[str, Any]:
-        # TODO: this is a little weird since we are passing interpolation_mode to segmentation() but ignore it.
-        #  Currently we don't support passing different parameters to the feature transforms. We could allow returning a
-        #  {Image: dict(..., interpolation_mode="bilinear"), Segmentation: dict(..., interpolation_mode="bilinear")}
-        #  In case we get a single parameter dictionary, it will be used for all feature transforms for convenience
-        return dict(size=self.size, interpolation_mode=self.interpolation_mode)
+    def get_params(self, sample: Any) -> Union[Dict[str, Any], Dict[Type[Feature], Dict[str, Any]]]:
+        return {
+            Image: dict(size=self.size, interpolation_mode=self.interpolation_mode),
+            Segmentation: dict(size=self.size, interpolation_mode="nearest"),
+        }
 
     @staticmethod
     @ImageRequirement.batched()
@@ -53,8 +52,10 @@ class Resize(Transform):
         return interpolate(input, size, mode=interpolation_mode)
 
     @staticmethod
-    def segmentation(input: Segmentation, *, size: Tuple[int, int], **_: Any) -> Segmentation:
-        return Segmentation(Resize.image(input, size=size, interpolation_mode="nearest"))
+    def segmentation(
+        input: Segmentation, *, size: Tuple[int, int], interpolation_mode: str = "nearest"
+    ) -> Segmentation:
+        return Segmentation(Resize.image(input, size=size, interpolation_mode=interpolation_mode))
 
     def extra_repr(self) -> str:
         extra_repr = f"size={self.size}"
