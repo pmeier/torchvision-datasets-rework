@@ -4,7 +4,7 @@ import torch
 
 from ._transform import _TransformBase
 
-__all__ = ["Compose", "RandomApply", "RandomChoice"]
+__all__ = ["Compose", "RandomApply", "RandomChoice", "RandomOrder"]
 
 
 class _ContainerTransform(_TransformBase):
@@ -79,7 +79,15 @@ class RandomApply(_WrapperTransform):
 
 
 class RandomChoice(_MultiTransform):
-    def forward(self, *inputs: Any, strict: bool = True) -> Any:
+    def forward(self, *inputs: Any, strict: bool = False) -> Any:
         idx = torch.randint(len(self._transforms), size=()).item()
         transform = self._transforms[idx]
         return transform(*inputs, strict=strict)
+
+
+class RandomOrder(_MultiTransform):
+    def forward(self, *inputs: Any, strict: bool = False) -> Any:
+        for idx in torch.randperm(len(self._transforms)):
+            transform = self._transforms[idx]
+            inputs = transform(*inputs, strict=strict)
+        return inputs
