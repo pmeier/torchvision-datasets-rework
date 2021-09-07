@@ -93,7 +93,10 @@ class BoundingBox(TensorFeature):
         like: Optional["BoundingBox"] = None,
         image_size: Optional[Tuple[int, int]] = None,
     ) -> "BoundingBox":
-        return cls.from_tensor(torch.stack((a, b, c, d), dim=-1), like=like, image_size=image_size, format=format)
+        parts = torch.broadcast_tensors(
+            *[part if isinstance(part, torch.Tensor) else torch.as_tensor(part) for part in (a, b, c, d)]
+        )
+        return cls.from_tensor(torch.stack(parts, dim=-1), like=like, image_size=image_size, format=format)
 
     def to_parts(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.unbind(-1)

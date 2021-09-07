@@ -8,15 +8,16 @@ from typing import Any, Callable, Dict, Optional, Type, Union, cast
 import torch
 from torch import nn
 
-from torchvision.features import BoundingBox, Feature, Image
+from torchvision import features
 
 __all__ = ["Transform", "Identity", "Lambda"]
 
 
 class _TransformBase(nn.Module):
     _BUILTIN_FEATURE_TYPES = (
-        BoundingBox,
-        Image,
+        features.BoundingBox,
+        features.Image,
+        features.Segmentation,
     )
 
 
@@ -152,7 +153,7 @@ class Transform(_TransformBase):
     }
 
     def __init_subclass__(cls, *, auto_register: bool = True, verbose: bool = False):
-        cls._feature_transforms: Dict[Type[Feature], Callable] = {}
+        cls._feature_transforms: Dict[Type[features.Feature], Callable] = {}
         if auto_register:
             cls._auto_register(verbose=verbose)
 
@@ -169,7 +170,7 @@ class Transform(_TransformBase):
             return parameters[1].kind != inspect.Parameter.POSITIONAL_ONLY
 
     @classmethod
-    def register_feature_transform(cls, feature_type: Type[Feature], transform: Callable) -> None:
+    def register_feature_transform(cls, feature_type: Type[features.Feature], transform: Callable) -> None:
         """Registers a transform for given feature on the class.
 
         If a transform object is called or :meth:`Transform.apply` is invoked, inputs are dispatched to the registered
@@ -250,7 +251,7 @@ class Transform(_TransformBase):
     @classmethod
     def from_callable(
         cls,
-        feature_transform: Union[Callable, Dict[Type[Feature], Callable]],
+        feature_transform: Union[Callable, Dict[Type[features.Feature], Callable]],
         *,
         name: str = "FromCallable",
         get_params: Optional[Union[Dict[str, Any], Callable[[Any], Dict[str, Any]]]] = None,
@@ -277,7 +278,7 @@ class Transform(_TransformBase):
         transform_cls = cast(Type[Transform], type(name, (cls,), attributes))
 
         if callable(feature_transform):
-            feature_transform = {Image: feature_transform}
+            feature_transform = {features.Image: feature_transform}
         for feature_type, transform in feature_transform.items():
             transform_cls.register_feature_transform(feature_type, transform)
 
@@ -319,8 +320,8 @@ class Transform(_TransformBase):
 
         # TODO: if the other domain libraries adopt our approach, we need to make the default type variable.
         if feature_type is torch.Tensor:
-            feature_type = Image
-            input = Image.from_tensor(input)
+            feature_type = features.Image
+            input = feature_type.from_tensor(input)
 
         feature_transform = cls._feature_transforms[feature_type]
         return feature_transform(input, **params)
@@ -350,8 +351,7 @@ class Transform(_TransformBase):
                 def get_params(sample):
                     return dict(degrees=torch.rand() * 30.0)
         """
-        transform_cls.supports = cls.supports
-        transform_cls.apply = cls.apply
+        transform_cls._feature_transforms = cls._feature_transforms.copy()
         return transform_cls
 
     def _apply_recursively(self, sample: Any, *, params: Dict[str, Any], strict: bool) -> Any:

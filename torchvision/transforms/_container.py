@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 
 import torch
 
@@ -14,8 +14,17 @@ class _ContainerTransform(_TransformBase):
     def forward(self, *inputs: Any, strict: bool = False) -> Any:
         raise NotImplementedError()
 
+    def _make_repr(self, lines: List[str]) -> str:
+        extra_repr = self.extra_repr()
+        if extra_repr:
+            lines = [self.extra_repr(), *lines]
+        head = f"{type(self).__name__}("
+        tail = ")"
+        body = [f"  {line.rstrip()}" for line in lines]
+        return "\n".join([head, *body, tail])
 
-class _WrapperTransform(_TransformBase):
+
+class _WrapperTransform(_ContainerTransform):
     def __init__(self, transform: _TransformBase):
         super().__init__()
         self._transform = transform
@@ -23,8 +32,11 @@ class _WrapperTransform(_TransformBase):
     def supports(self, obj: Any) -> bool:
         return self._transform.supports(obj)
 
+    def __repr__(self) -> str:
+        return self._make_repr(repr(self._transform).splitlines())
 
-class _MultiTransform(_TransformBase):
+
+class _MultiTransform(_ContainerTransform):
     def __init__(self, *transforms: _TransformBase) -> None:
         super().__init__()
         self._transforms = transforms
@@ -32,6 +44,14 @@ class _MultiTransform(_TransformBase):
     def supports(self, obj: Any, *, strict: bool = False) -> bool:
         aggregator = all if strict else any
         return aggregator(transform.supports(obj) for transform in self._transforms)
+
+    def __repr__(self) -> str:
+        lines = []
+        for idx, transform in enumerate(self._transforms):
+            partial_lines = repr(transform).splitlines()
+            lines.append(f"({idx:d}): {partial_lines[0]}")
+            lines.extend(partial_lines[1:])
+        return self._make_repr(lines)
 
 
 class Compose(_MultiTransform):
@@ -48,11 +68,14 @@ class RandomApply(_WrapperTransform):
 
     def forward(self, *inputs: Any, strict: bool = False) -> Any:
         sample = inputs if len(inputs) > 1 else inputs[0]
-        if torch.rand() < self._p:
+        if float(torch.rand(())) < self._p:
             # TODO: Should we check here is sample is supported if strict=True?
             return sample
 
         return self._transform(sample, strict=strict)
+
+    def extra_repr(self) -> str:
+        return f"p={self._p}"
 
 
 class RandomChoice(_MultiTransform):

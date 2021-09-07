@@ -2,7 +2,7 @@ from typing import Tuple
 
 from ._core import TensorFeature
 
-__all__ = ["Image"]
+__all__ = ["Image", "Segmentation"]
 
 
 class Image(TensorFeature):
@@ -26,4 +26,8 @@ class Image(TensorFeature):
         elif self.batch_size == 1:
             return Image.from_tensor(self.squeeze(0), like=self)
         else:
-            raise RuntimeError("Cannot unbatch an image tensor if batch containes more than one image.")
+            raise RuntimeError("Cannot unbatch an image tensor if batch contains more than one image.")
+
+
+class Segmentation(Image):
+    pass
